@@ -2,397 +2,458 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>Simple 3D FPS - index.html</title>
+  <title>FPS Demo — Improved</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    html,body { height: 100%; margin: 0; overflow: hidden; background: #000; font-family: Arial, Helvetica, sans-serif; }
+    html,body { height:100%; margin:0; overflow:hidden; background:#000; font-family: Arial, Helvetica, sans-serif; }
     #overlay {
-      position: absolute; left: 12px; top: 12px; z-index: 10; color: #fff;
-      background: rgba(0,0,0,0.35); padding: 10px 12px; border-radius: 8px;
+      position: absolute; left:12px; top:12px; z-index:10; color:#fff;
+      background: rgba(0,0,0,0.35); padding:10px 12px; border-radius:8px;
       backdrop-filter: blur(4px);
+      transition: opacity .2s;
     }
-    #instructions {
-      font-size: 13px; line-height: 1.4;
-    }
-    #fps {
-      position: absolute; right: 12px; top: 12px; z-index: 10; color: #0f0;
-      background: rgba(0,0,0,0.35); padding: 6px 10px; border-radius: 8px; font-family: monospace;
-    }
-    canvas { display: block; }
+    #fps { position:absolute; right:12px; top:12px; z-index:10; color:#0f0; background: rgba(0,0,0,0.35); padding:6px 10px; border-radius:8px; font-family:monospace; }
+    #hint { font-size:13px; line-height:1.3; }
+    canvas { display:block; }
   </style>
 </head>
 <body>
   <div id="overlay">
-    <div style="font-weight:700">Simple 3D FPS Demo</div>
-    <div id="instructions">
-      Click the screen to lock pointer.<br>
-      Move: W A S D · Jump: Space · Run: Shift<br>
-      Escape releases pointer.
-    </div>
+    <div style="font-weight:700">FPS Demo — Improved</div>
+    <div id="hint">Click to lock pointer. Move: W A S D · Jump: Space · Run: Shift</div>
   </div>
   <div id="fps">FPS: --</div>
 
-  <script type="module">
-  // Single-file FPS with basic collisions, day/night sun, platform and ground.
-  import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js';
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js';
 
-  // ---------- Scene Setup ----------
-  const scene = new THREE.Scene();
-  const renderer = new THREE.WebGLRenderer({ antialias: true });
+///// Renderer & Scene /////
+const scene = new THREE.Scene();
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // performance cap
+renderer.setSize(window.innerWidth, window.innerHeight);
+document.body.appendChild(renderer.domElement);
+
+// Camera hierarchy for yaw/pitch
+const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
+const yawObject = new THREE.Object3D();
+const pitchObject = new THREE.Object3D();
+pitchObject.add(camera);
+yawObject.add(pitchObject);
+scene.add(yawObject);
+
+window.addEventListener('resize', ()=> {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.shadowMap.enabled = true;
-  document.body.appendChild(renderer.domElement);
+});
 
-  // Camera (we'll attach it to nested objects for yaw/pitch control)
-  const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+///// Lighting, sun & moon visuals /////
+const hemi = new THREE.HemisphereLight(0x87ceeb, 0x222244, 0.6);
+scene.add(hemi);
 
-  // Objects to control orientation
-  const yawObject = new THREE.Object3D(); // rotates left/right
-  const pitchObject = new THREE.Object3D(); // rotates up/down
-  pitchObject.add(camera);
-  yawObject.add(pitchObject);
-  scene.add(yawObject);
+const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
+sunLight.castShadow = true;
+sunLight.shadow.mapSize.set(512,512); // reduce to save perf
+sunLight.shadow.camera.near = 0.5;
+sunLight.shadow.camera.far = 300;
+sunLight.shadow.camera.left = -50;
+sunLight.shadow.camera.right = 50;
+sunLight.shadow.camera.top = 50;
+sunLight.shadow.camera.bottom = -50;
+scene.add(sunLight);
 
-  // Resize handling
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+// Sun and moon visible spheres
+const sunMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(1.6, 12, 8),
+  new THREE.MeshBasicMaterial({ color: 0xfff0c8, transparent:true, opacity:0.95, toneMapped:false })
+);
+scene.add(sunMesh);
 
-  // ---------- Lighting & Day-Night Cycle ----------
-  const ambientLight = new THREE.HemisphereLight(0x87ceeb, 0x222244, 0.6); // sky color, ground color, intensity
-  scene.add(ambientLight);
+const moonMesh = new THREE.Mesh(
+  new THREE.SphereGeometry(1.2, 10, 8),
+  new THREE.MeshBasicMaterial({ color: 0xdde6ff, transparent:true, opacity:0.85, toneMapped:false })
+);
+scene.add(moonMesh);
 
-  const sun = new THREE.DirectionalLight(0xffffff, 1.0);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(1024, 1024);
-  sun.shadow.camera.left = -50; sun.shadow.camera.right = 50; sun.shadow.camera.top = 50; sun.shadow.camera.bottom = -50;
-  sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 500;
-  scene.add(sun);
+// subtle lens glow (fake) using sprite (low cost)
+const spriteMap = new THREE.TextureLoader().load('https://cdn.jsdelivr.net/gh/mrdoob/three.js@r150/examples/textures/sprites/spark1.png');
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({ map: spriteMap, blending: THREE.AdditiveBlending, opacity:0.35 }));
+sunGlow.scale.setScalar(10);
+scene.add(sunGlow);
 
-  // A helper to visualize sun direction while debugging (comment out if not needed)
-  // const sunHelper = new THREE.DirectionalLightHelper(sun, 4); scene.add(sunHelper);
+///// Ground & platforms (reduced complexity for performance) /////
+const world = new THREE.Group();
+scene.add(world);
 
-  // Sky background color will change with time
-  function updateLightingForTime(t) {
-    // t: 0..1 where 0 = midnight, 0.5 = noon
-    // sun angle: rotate around XZ plane
-    const angle = t * Math.PI * 2; // full day cycle
-    const sunDir = new THREE.Vector3(Math.cos(angle), Math.sin(angle), Math.sin(angle * 0.5)).normalize();
-    sun.position.copy(sunDir.multiplyScalar(100));
-    sun.target.position.set(0, 0, 0);
-    sun.target.updateMatrixWorld();
+const ground = new THREE.Mesh(
+  new THREE.BoxGeometry(500,1,500),
+  new THREE.MeshStandardMaterial({ color:0x445544 })
+);
+ground.receiveShadow = true;
+ground.position.y = -0.5;
+world.add(ground);
 
-    // ambient shifts (more warm at sunrise/sunset)
-    const intensity = Math.max(0.15, Math.sin(angle) * 0.9); // night low ambient, day stronger
-    ambientLight.intensity = THREE.MathUtils.lerp(0.08, 0.9, Math.max(0, intensity));
-    sun.intensity = THREE.MathUtils.lerp(0.15, 1.4, Math.max(0, Math.sin(angle)));
+// Platform helper and list for collision
+const platforms = [];
+function makePlatform(x,y,z,sx=6,sy=1,sz=6,color=0x8b7d6b) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(sx,sy,sz),
+    new THREE.MeshStandardMaterial({ color })
+  );
+  mesh.position.set(x,y,z);
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  world.add(mesh);
+  platforms.push({ mesh, half: new THREE.Vector3(sx/2, sy/2, sz/2) });
+  return mesh;
+}
+makePlatform(0,2,-10,8,1,8,0x8b7d6b);
+makePlatform(12,4,-20,6,1,6,0x7fa0a0);
+makePlatform(-12,6,-6,4,1,10,0x6a8b8b);
 
-    // background color interpolation (night -> dawn -> day)
-    const dayColor = new THREE.Color(0x87ceeb); // light sky
-    const dawnColor = new THREE.Color(0xffb56b); // warm dawn
-    const nightColor = new THREE.Color(0x0b1220); // deep night
-    const dayFactor = Math.max(0, Math.sin(angle)); // 0..1
-    const dawnFactor = Math.exp(-Math.pow((Math.sin(angle) - 0.1) / 0.25, 2)); // peaks around sunrise/sunset
-    const bgColor = new THREE.Color();
-    bgColor.copy(nightColor).lerp(dawnColor, dawnFactor).lerp(dayColor, dayFactor * 0.9);
-    renderer.setClearColor(bgColor);
-  }
+// Decorative boxes using InstancedMesh (efficient)
+const decoCount = 40;
+const boxGeo = new THREE.BoxGeometry(1,1,1);
+const boxMat = new THREE.MeshStandardMaterial({ color: 0x8a9a9a });
+const inst = new THREE.InstancedMesh(boxGeo, boxMat, decoCount);
+inst.castShadow = true;
+inst.receiveShadow = true;
+const dummy = new THREE.Object3D();
+for (let i=0;i<decoCount;i++){
+  const s = 0.6 + Math.random()*2.4;
+  dummy.scale.set(s,s,s);
+  dummy.position.set((Math.random()-0.5)*120, s/2, (Math.random()-0.5)*120);
+  dummy.updateMatrix();
+  inst.setMatrixAt(i, dummy.matrix);
+  // also add to platform collision list as simple boxes
+  platforms.push({ mesh: { position: dummy.position.clone() }, half: new THREE.Vector3(s/2, s/2, s/2) });
+}
+world.add(inst);
 
-  // ---------- Ground and Platform ----------
-  const world = new THREE.Group();
-  scene.add(world);
+///// Player physics /////
+const player = {
+  height: 1.8,
+  radius: 0.35,
+  velocity: new THREE.Vector3(),
+  speed: 6,
+  runMultiplier: 1.8,
+  jumpSpeed: 7,
+  onGround: false
+};
+// spawn
+yawObject.position.set(0, player.height, 10);
 
-  // Ground plane (big box so it can cast/receive shadows nicely)
-  const groundGeom = new THREE.BoxGeometry(500, 1, 500);
-  const groundMat = new THREE.MeshStandardMaterial({ color: 0x445544 });
-  const ground = new THREE.Mesh(groundGeom, groundMat);
-  ground.receiveShadow = true;
-  ground.position.y = -0.5;
-  world.add(ground);
+function playerCenterFromPosition(pos, outCenter=new THREE.Vector3()){
+  // center of player's AABB
+  outCenter.set(pos.x, pos.y - (player.height/2 - player.radius), pos.z);
+  return outCenter;
+}
+function playerHalf(){
+  return new THREE.Vector3(player.radius, player.height/2, player.radius);
+}
 
-  // Platform: a raised box to jump on
-  function makePlatform(x, y, z, sx = 6, sy = 1, sz = 6, color = 0x8b7d6b) {
-    const g = new THREE.BoxGeometry(sx, sy, sz);
-    const m = new THREE.MeshStandardMaterial({ color });
-    const mesh = new THREE.Mesh(g, m);
-    mesh.castShadow = true; mesh.receiveShadow = true;
-    mesh.position.set(x, y, z);
-    world.add(mesh);
-    // store AABB info for collisions
-    const half = new THREE.Vector3(sx / 2, sy / 2, sz / 2);
-    platforms.push({ mesh, half });
-    return mesh;
-  }
+// robust AABB overlap and penetration
+function aabbOverlap(aCenter, aHalf, bCenter, bHalf){
+  const dx = aCenter.x - bCenter.x; const px = (aHalf.x + bHalf.x) - Math.abs(dx);
+  if (px <= 0) return null;
+  const dy = aCenter.y - bCenter.y; const py = (aHalf.y + bHalf.y) - Math.abs(dy);
+  if (py <= 0) return null;
+  const dz = aCenter.z - bCenter.z; const pz = (aHalf.z + bHalf.z) - Math.abs(dz);
+  if (pz <= 0) return null;
+  const overlap = new THREE.Vector3();
+  // choose axis of minimum penetration
+  if (px < py && px < pz) overlap.x = dx > 0 ? px : -px;
+  else if (py < px && py < pz) overlap.y = dy > 0 ? py : -py;
+  else overlap.z = dz > 0 ? pz : -pz;
+  return overlap;
+}
 
-  const platforms = [];
-  // Put a few platforms
-  makePlatform(0, 2, -10, 8, 1, 8, 0x8b7d6b);
-  makePlatform(12, 4, -20, 6, 1, 6, 0x7fa0a0);
-  makePlatform(-12, 6, -6, 4, 1, 10, 0x6a8b8b);
+///// Controls & pointer lock /////
+const input = { forward:0, backward:0, left:0, right:0, run:0, jump:0 };
+window.addEventListener('keydown', e=> {
+  if (e.code==='KeyW') input.forward=1;
+  if (e.code==='KeyS') input.backward=1;
+  if (e.code==='KeyA') input.left=1;
+  if (e.code==='KeyD') input.right=1;
+  if (e.code==='ShiftLeft' || e.code==='ShiftRight') input.run=1;
+  if (e.code==='Space') input.jump=1;
+});
+window.addEventListener('keyup', e=> {
+  if (e.code==='KeyW') input.forward=0;
+  if (e.code==='KeyS') input.backward=0;
+  if (e.code==='KeyA') input.left=0;
+  if (e.code==='KeyD') input.right=0;
+  if (e.code==='ShiftLeft' || e.code==='ShiftRight') input.run=0;
+  if (e.code==='Space') input.jump=0;
+});
 
-  // A few decorative cubes
-  for (let i = 0; i < 20; i++) {
-    const s = 1 + Math.random() * 2;
-    const box = new THREE.Mesh(new THREE.BoxGeometry(s, s, s),
-      new THREE.MeshStandardMaterial({ color: new THREE.Color().setHSL(Math.random(), 0.5, 0.5) }));
-    box.position.set((Math.random() - 0.5) * 80, s / 2, (Math.random() - 0.5) * 80);
-    box.castShadow = true; box.receiveShadow = true;
-    world.add(box);
-    platforms.push({ mesh: box, half: new THREE.Vector3(s / 2, s / 2, s / 2) });
-  }
+// mouse look
+let pointerEnabled=false;
+const PI_2 = Math.PI/2;
+const sensitivity = 0.0022;
+document.addEventListener('mousemove', e=>{
+  if (!pointerEnabled) return;
+  yawObject.rotation.y -= e.movementX * sensitivity;
+  pitchObject.rotation.x -= e.movementY * sensitivity;
+  pitchObject.rotation.x = Math.max(-PI_2+0.01, Math.min(PI_2-0.01, pitchObject.rotation.x));
+});
+renderer.domElement.addEventListener('click', ()=> {
+  renderer.domElement.requestPointerLock?.();
+});
+document.addEventListener('pointerlockchange', ()=> {
+  pointerEnabled = document.pointerLockElement === renderer.domElement;
+  document.getElementById('overlay').style.opacity = pointerEnabled ? '0.6' : '1';
+});
 
-  // ---------- Player (physics/collision) ----------
-  const player = {
-    // We'll use the yawObject.position as the player's position
-    height: 1.8,         // player eye height
-    radius: 0.35,        // approximate width for AABB
-    velocity: new THREE.Vector3(),
-    speed: 6,            // m/s
-    runMultiplier: 1.8,
-    jumpSpeed: 7,
-    onGround: false
-  };
+window.addEventListener('keydown', e=>{
+  const keys = ['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
+  if (keys.includes(e.code) && document.pointerLockElement === renderer.domElement) e.preventDefault();
+});
 
-  // Place camera at start
-  yawObject.position.set(0, player.height, 10);
+///// Walking particles (pooled points emitter) /////
+const maxParticles = 80;
+const particlePositions = new Float32Array(maxParticles*3);
+const particleLives = new Float32Array(maxParticles); // 0 = dead, >0 = remaining life
+const particleVels = new Float32Array(maxParticles*3);
+const particleGeo = new THREE.BufferGeometry();
+particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+const particleMat = new THREE.PointsMaterial({ size: 0.08, transparent:true, opacity:0.9, depthWrite:false });
+const particleSys = new THREE.Points(particleGeo, particleMat);
+particleSys.frustumCulled = false;
+scene.add(particleSys);
 
-  // A helper to produce the player's AABB center and half extents
-  function playerAABB(center = new THREE.Vector3(), half = new THREE.Vector3()) {
-    center.copy(yawObject.position);
-    center.y -= player.height / 2 - player.radius; // approximate center of player box
-    half.set(player.radius, player.height / 2, player.radius);
-    return { center, half };
-  }
-
-  // Basic AABB overlap test and resolution
-  function aabbOverlap(aCenter, aHalf, bCenter, bHalf) {
-    // returns overlap vector (how much A penetrates into B) or null if no overlap
-    const overlap = new THREE.Vector3();
-    const dx = (aCenter.x - bCenter.x);
-    const px = (aHalf.x + bHalf.x) - Math.abs(dx);
-    if (px <= 0) return null;
-    const dy = (aCenter.y - bCenter.y);
-    const py = (aHalf.y + bHalf.y) - Math.abs(dy);
-    if (py <= 0) return null;
-    const dz = (aCenter.z - bCenter.z);
-    const pz = (aHalf.z + bHalf.z) - Math.abs(dz);
-    if (pz <= 0) return null;
-    // find minimum penetration axis
-    if (px < py && px < pz) {
-      overlap.x = dx > 0 ? px : -px;
-    } else if (py < px && py < pz) {
-      overlap.y = dy > 0 ? py : -py;
-    } else {
-      overlap.z = dz > 0 ? pz : -pz;
+function spawnParticle(x,y,z, vx,vy,vz, life=0.6){
+  for (let i=0;i<maxParticles;i++){
+    if (particleLives[i] <= 0){
+      const pi = i*3;
+      particlePositions[pi]=x; particlePositions[pi+1]=y; particlePositions[pi+2]=z;
+      particleVels[pi]=vx; particleVels[pi+1]=vy; particleVels[pi+2]=vz;
+      particleLives[i]=life;
+      return;
     }
-    return overlap;
+  }
+}
+
+// small helper for foot position
+function footPosition(){
+  // a bit ahead of camera
+  const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+  const foot = yawObject.position.clone().addScaledVector(forward, 0.2);
+  foot.y = yawObject.position.y - player.height/2 + 0.05;
+  return foot;
+}
+
+///// Blocky hands attached to camera /////
+const handGroup = new THREE.Object3D();
+camera.add(handGroup);
+handGroup.position.set(0.3,-0.3,-0.45); // offset in camera space
+
+// two blocky hands
+const armMat = new THREE.MeshStandardMaterial({ color:0xd6b07a });
+const leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.25,0.25,0.5), armMat);
+const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.25,0.25,0.5), armMat);
+leftHand.position.set(-0.45, 0, 0.1); rightHand.position.set(0.45, 0, 0.1);
+leftHand.castShadow = rightHand.castShadow = true;
+handGroup.add(leftHand, rightHand);
+
+///// Performance & debug tweaks /////
+renderer.shadowMap.enabled = true;
+sunLight.shadow.camera.updateProjectionMatrix();
+
+///// Time, animation & physics loop /////
+let lastTime = performance.now()/1000;
+let timeOfDay = 0.3; // 0..1
+let frames = 0, fpsT=0;
+
+function updateSunMoon(t){
+  // t: 0..1 (0 midnight, 0.5 noon)
+  const angle = t * Math.PI * 2; // full rotation
+  // sun on a path above the scene
+  const sunDir = new THREE.Vector3(Math.cos(angle), Math.sin(angle), Math.sin(angle*0.5)).normalize();
+  const sunPos = sunDir.clone().multiplyScalar(120);
+  sunLight.position.copy(sunPos);
+  sunLight.target.position.set(0,0,0); sunLight.target.updateMatrixWorld();
+  sunMesh.position.copy(sunPos);
+  sunGlow.position.copy(sunPos);
+  sunGlow.material.rotation = angle;
+  // moon opposite the sun
+  const moonPos = sunDir.clone().multiplyScalar(-80);
+  moonMesh.position.copy(moonPos);
+  // adjust brightness
+  const sunBrightness = Math.max(0.12, Math.sin(angle)*0.95);
+  hemi.intensity = THREE.MathUtils.lerp(0.08, 0.9, Math.max(0, sunBrightness));
+  sunLight.intensity = THREE.MathUtils.lerp(0.15, 1.4, Math.max(0, Math.sin(angle)));
+  // background color
+  const dayColor = new THREE.Color(0x87ceeb);
+  const nightColor = new THREE.Color(0x0b1220);
+  const factor = THREE.MathUtils.smoothstep(Math.sin(angle), -0.2, 0.6);
+  renderer.setClearColor(nightColor.clone().lerp(dayColor, factor));
+}
+
+const gravity = -20.0;
+function physicsStep(dt){
+  // compute desired velocity based on input
+  const forward = input.forward - input.backward;
+  const strafe = input.right - input.left;
+  const run = input.run ? player.runMultiplier : 1;
+  const speed = player.speed * run;
+
+  // orientation-only yaw for movement
+  const euler = new THREE.Euler(0, yawObject.rotation.y, 0, 'YXZ');
+  const forwardVec = new THREE.Vector3(0,0,-1).applyEuler(euler).setY(0).normalize();
+  const rightVec = new THREE.Vector3(1,0,0).applyEuler(euler).setY(0).normalize();
+
+  const desired = new THREE.Vector3();
+  desired.addScaledVector(forwardVec, forward);
+  desired.addScaledVector(rightVec, strafe);
+  if (desired.lengthSq() > 0) desired.normalize().multiplyScalar(speed);
+
+  // smooth acceleration
+  const accel = 30.0;
+  player.velocity.x = THREE.MathUtils.lerp(player.velocity.x, desired.x, Math.min(1, accel*dt));
+  player.velocity.z = THREE.MathUtils.lerp(player.velocity.z, desired.z, Math.min(1, accel*dt));
+
+  // gravity & jump
+  player.velocity.y += gravity * dt;
+  if (input.jump && player.onGround){
+    player.velocity.y = player.jumpSpeed; player.onGround = false;
   }
 
-  // ---------- Controls ----------
-  const input = { forward:0, backward:0, left:0, right:0, run:0, jump:0 };
+  // integrate tentative next position
+  const nextPos = yawObject.position.clone().addScaledVector(player.velocity, dt);
 
-  window.addEventListener('keydown', (e) => {
-    if (e.code === 'KeyW') input.forward = 1;
-    if (e.code === 'KeyS') input.backward = 1;
-    if (e.code === 'KeyA') input.left = 1;
-    if (e.code === 'KeyD') input.right = 1;
-    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.run = 1;
-    if (e.code === 'Space') input.jump = 1;
-  });
-  window.addEventListener('keyup', (e) => {
-    if (e.code === 'KeyW') input.forward = 0;
-    if (e.code === 'KeyS') input.backward = 0;
-    if (e.code === 'KeyA') input.left = 0;
-    if (e.code === 'KeyD') input.right = 0;
-    if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.run = 0;
-    if (e.code === 'Space') input.jump = 0;
-  });
-
-  // Mouse look using pointer lock
-  let enabledPointer = false;
-  const PI_2 = Math.PI / 2;
-  const sensitivity = 0.0022;
-  function onMouseMove(e) {
-    if (!enabledPointer) return;
-    yawObject.rotation.y -= e.movementX * sensitivity;
-    pitchObject.rotation.x -= e.movementY * sensitivity;
-    pitchObject.rotation.x = Math.max(-PI_2 + 0.01, Math.min(PI_2 - 0.01, pitchObject.rotation.x));
-  }
-  document.addEventListener('mousemove', onMouseMove);
-
-  // Pointer lock
-  renderer.domElement.addEventListener('click', () => {
-    renderer.domElement.requestPointerLock?.();
-  });
-  document.addEventListener('pointerlockchange', () => {
-    enabledPointer = (document.pointerLockElement === renderer.domElement);
-    document.getElementById('overlay').style.opacity = enabledPointer ? '0.6' : '1';
-  });
-
-  // ---------- Physics update ----------
-  const gravity = -20.0; // m/s^2 (strong on purpose for feel)
-  let lastTime = performance.now() / 1000;
-
-  // For FPS display
-  let frames = 0; let fpsTime = 0;
-
-  function physicsStep(dt) {
-    // Movement input local to camera orientation
-    const forward = (input.forward - input.backward);
-    const strafe = (input.right - input.left);
-    let speed = player.speed * (input.run ? player.runMultiplier : 1);
-
-    // Compute direction vectors from yaw rotation
-    const euler = new THREE.Euler(0, yawObject.rotation.y, 0, 'YXZ');
-    const forwardVec = new THREE.Vector3(0,0,-1).applyEuler(euler).setY(0).normalize();
-    const rightVec = new THREE.Vector3(1,0,0).applyEuler(euler).setY(0).normalize();
-
-    // Desired velocity on XZ plane
-    const desiredVel = new THREE.Vector3();
-    desiredVel.addScaledVector(forwardVec, forward);
-    desiredVel.addScaledVector(rightVec, strafe);
-    if (desiredVel.lengthSq() > 0) desiredVel.normalize().multiplyScalar(speed);
-
-    // Smooth acceleration
-    const accel = 30.0;
-    player.velocity.x = THREE.MathUtils.lerp(player.velocity.x, desiredVel.x, Math.min(1, accel * dt));
-    player.velocity.z = THREE.MathUtils.lerp(player.velocity.z, desiredVel.z, Math.min(1, accel * dt));
-
-    // Gravity
-    player.velocity.y += gravity * dt;
-
-    // Jump
-    if (input.jump && player.onGround) {
-      player.velocity.y = player.jumpSpeed;
-      player.onGround = false;
-    }
-
-    // Integrate position
-    const nextPos = yawObject.position.clone().addScaledVector(player.velocity, dt);
-
-    // Build AABB for candidate next position
-    const aCenter = new THREE.Vector3();
-    const aHalf = new THREE.Vector3();
-    playerAABB(aCenter, aHalf);
-    const prevCenter = aCenter.clone();
-    aCenter.addScaledVector(player.velocity, dt); // predicted center
-
-    // Reset ground state; we'll detect collisions and set if standing
+  // floor collision (ground top y = 0)
+  const feetY = nextPos.y - player.height/2;
+  if (feetY < 0){
+    nextPos.y = player.height/2;
+    player.velocity.y = 0;
+    player.onGround = true;
+  } else {
     player.onGround = false;
+  }
 
-    // Collide with ground explicitly (y floor at y=0 minus ground thickness)
-    // ground mesh centered at y = -0.5 with half-height = 0.5 -> top y = 0
-    if (nextPos.y < player.height / 2) {
-      // Simple floor collision
-      nextPos.y = player.height / 2;
-      player.velocity.y = 0;
-      player.onGround = true;
+  // player AABB center at nextPos
+  const aCenter = playerCenterFromPosition(nextPos);
+  const aHalf = playerHalf();
+
+  // check platform collisions
+  for (const p of platforms){
+    const bCenter = (p.mesh.position instanceof THREE.Vector3) ? p.mesh.position : p.mesh.position.clone();
+    const bHalf = p.half.clone();
+    const overlap = aabbOverlap(aCenter, aHalf, bCenter, bHalf);
+    if (!overlap) continue;
+    // resolve smallest penetration axis
+    if (Math.abs(overlap.y) > 0){
+      nextPos.y += overlap.y;
+      if (overlap.y > 0){ // landed on top
+        player.velocity.y = 0;
+        player.onGround = true;
+      } else { // hit head
+        player.velocity.y = Math.min(0, player.velocity.y);
+      }
+    } else if (Math.abs(overlap.x) > 0){
+      nextPos.x += overlap.x;
+      player.velocity.x = 0;
+    } else if (Math.abs(overlap.z) > 0){
+      nextPos.z += overlap.z;
+      player.velocity.z = 0;
     }
+    // update center after resolution so further checks are correct
+    aCenter.copy(playerCenterFromPosition(nextPos, aCenter));
+  }
 
-    // Collide with platforms / world boxes
-    // For each platform, compute its center & half extents (mesh.position and stored half)
-    for (const p of platforms) {
-      const mesh = p.mesh;
-      const bCenter = mesh.position.clone();
-      const bHalf = p.half.clone();
-      // Because platform geometry may include rotation or scale in general,
-      // for this simple demo we assume no rotation and uniform scale.
-      const overlap = aabbOverlap(
-        // player's center at nextPos adjusted
-        new THREE.Vector3(nextPos.x, nextPos.y - player.height/2 + player.radius, nextPos.z),
-        new THREE.Vector3(player.radius, player.height/2, player.radius),
-        bCenter, bHalf
-      );
-      if (!overlap) continue;
-      // Resolve overlap: push nextPos by overlap vector (inverse)
-      // If vertical overlap (y) is smallest then treat as landing on top/bottom surface.
-      if (Math.abs(overlap.y) > 0) {
-        // vertical collision
-        nextPos.y += overlap.y;
-        if (overlap.y > 0) {
-          // We pushed up -> landed on top
-          player.velocity.y = 0;
-          player.onGround = true;
-        } else {
-          // hit the bottom of a platform
-          player.velocity.y = Math.min(0, player.velocity.y);
-        }
-      } else if (Math.abs(overlap.x) > 0) {
-        nextPos.x += overlap.x;
-        player.velocity.x = 0;
-      } else if (Math.abs(overlap.z) > 0) {
-        nextPos.z += overlap.z;
-        player.velocity.z = 0;
+  // finally apply
+  yawObject.position.copy(nextPos);
+
+  // small damping on horizontal velocity to reduce sliding
+  player.velocity.x *= 0.995;
+  player.velocity.z *= 0.995;
+}
+
+///// Particle update /////
+function updateParticles(dt){
+  for (let i=0;i<maxParticles;i++){
+    if (particleLives[i] > 0){
+      particleLives[i] -= dt;
+      const pi = i*3;
+      particleVels[pi+1] += gravity * 0.4 * dt; // gravity effect
+      particlePositions[pi] += particleVels[pi]*dt;
+      particlePositions[pi+1] += particleVels[pi+1]*dt;
+      particlePositions[pi+2] += particleVels[pi+2]*dt;
+      if (particleLives[i] <= 0){
+        // hide offscreen
+        particlePositions[pi]=particlePositions[pi+1]=particlePositions[pi+2]=9999;
       }
     }
+  }
+  particleGeo.attributes.position.needsUpdate = true;
+  // fade particles by lowering material opacity slightly if many active (cheap)
+  let active = 0;
+  for (let i=0;i<maxParticles;i++) if (particleLives[i]>0) active++;
+  particleMat.opacity = THREE.MathUtils.clamp(1 - active/maxParticles*0.6, 0.25, 1);
+}
 
-    // Apply final corrected position
-    yawObject.position.copy(nextPos);
+///// Hands bobbing animation /////
+let handBob = 0;
+function updateHands(dt){
+  // bob faster when moving
+  const speedXZ = Math.sqrt(player.velocity.x*player.velocity.x + player.velocity.z*player.velocity.z);
+  const bobSpeed = THREE.MathUtils.lerp(0.6, 10, Math.min(1, speedXZ/ (player.speed*1.2)));
+  handBob += dt * bobSpeed * 8;
+  const bobAmt = Math.min(0.06, speedXZ*0.004);
+  handGroup.position.y = -0.3 + Math.sin(handBob)*bobAmt;
+  handGroup.position.x = 0.3 + Math.sin(handBob*0.5)*bobAmt*0.6;
+  handGroup.rotation.x = Math.sin(handBob*0.9) * bobAmt*0.8;
+}
+
+///// Main loop /////
+let last = performance.now()/1000;
+function animate(){
+  const now = performance.now()/1000;
+  let dt = now - last;
+  last = now;
+  if (dt > 0.05) dt = 0.05; // clamp
+
+  // advance time-of-day
+  timeOfDay += dt * 0.018; // ~55 sec per day; tweak
+  timeOfDay %= 1.0;
+  updateSunMoon(timeOfDay);
+
+  physicsStep(dt);
+
+  // spawn particles when walking on ground
+  const moving = (Math.abs(player.velocity.x) > 0.1 || Math.abs(player.velocity.z) > 0.1);
+  if (moving && player.onGround){
+    const foot = footPosition();
+    // spawn a few particles
+    for (let i=0;i<2;i++){
+      const vx = (Math.random()-0.5)*0.6;
+      const vy = 1 + Math.random()*0.5;
+      const vz = (Math.random()-0.5)*0.6;
+      spawnParticle(foot.x + (Math.random()-0.5)*0.2, foot.y + 0.02, foot.z + (Math.random()-0.5)*0.2, vx, vy, vz, 0.6 + Math.random()*0.4);
+    }
   }
 
-  // ---------- Render loop ----------
-  let timeOfDay = 0.3; // 0..1 (0 = midnight), start near morning
-  function animate() {
-    const now = performance.now() / 1000;
-    let dt = now - lastTime;
-    lastTime = now;
-    // clamp dt to avoid huge jumps when tabbed out
-    dt = Math.min(dt, 0.05);
+  updateParticles(dt);
+  updateHands(dt);
 
-    // advance time-of-day slowly
-    timeOfDay += dt * 0.02; // one full day takes ~50 seconds; tweak multiplier for speed
-    timeOfDay %= 1.0;
-    updateLightingForTime(timeOfDay);
+  renderer.render(scene, camera);
 
-    physicsStep(dt);
-
-    // Basic camera target (we already move the camera by yaw/pitch objects)
-    renderer.render(scene, camera);
-
-    // FPS display (simple)
-    frames++; fpsTime += dt;
-    if (fpsTime >= 0.5) {
-      const fps = Math.round(frames / fpsTime);
-      document.getElementById('fps').textContent = 'FPS: ' + fps;
-      frames = 0; fpsTime = 0;
-    }
-
-    requestAnimationFrame(animate);
+  // FPS simple
+  frames++; fpsT += dt;
+  if (fpsT >= 0.5){
+    const fps = Math.round(frames/fpsT);
+    document.getElementById('fps').textContent = 'FPS: ' + fps;
+    frames = 0; fpsT = 0;
   }
 
-  // ---------- Initial call and extras ----------
-  // Put a visible grid
-  const grid = new THREE.GridHelper(200, 50, 0x666666, 0x444444);
-  (grid.material).transparent = true; grid.material.opacity = 0.6;
-  scene.add(grid);
+  requestAnimationFrame(animate);
+}
+animate();
 
-  // tiny ambient environment (fog)
-  scene.fog = new THREE.FogExp2(0x000000, 0.0006);
-
-  // Give sun a warm color
-  sun.color = new THREE.Color(0xfff8e6);
-
-  // shadows
-  renderer.shadowMap.enabled = true;
-  ground.receiveShadow = true;
-  for (const p of platforms) { p.mesh.castShadow = true; p.mesh.receiveShadow = true; }
-
-  // Start rendering
-  lastTime = performance.now() / 1000;
-  animate();
-
-  // Prevent the page from scrolling when using spacebar, etc.
-  window.addEventListener('keydown', function(e) {
-    const keys = ['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'];
-    if (keys.includes(e.code) && document.pointerLockElement === renderer.domElement) {
-      e.preventDefault();
-    }
-  });
-
-  // Simple guidance if pointer-lock not allowed
-  // Note: pointer lock works only after a user gesture; clicking the canvas attempts to lock.
-  // If it fails, the overlay still tells the user to click.
-  </script>
+</script>
 </body>
 </html>
