@@ -2,99 +2,75 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <title>FPS — Stable Camera + Centered Hands</title>
+  <title>FPS — Valve-style BHop + Centered Hands</title>
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <style>
-    html,body { height:100%; margin:0; background:#000; overflow:hidden; font-family: system-ui, Arial; }
-    #overlay { position:absolute; left:12px; top:12px; z-index:20; color:#fff; background: rgba(0,0,0,0.35); padding:8px 10px; border-radius:8px; }
-    #fps { position:absolute; right:12px; top:12px; z-index:20; color:#7cff7c; background: rgba(0,0,0,0.35); padding:6px 8px; border-radius:8px; font-family: monospace; }
-    #crosshair { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:18px; height:18px; z-index:15; pointer-events:none; }
-    #crosshair:before, #crosshair:after { content:""; position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); width:2px; height:10px; background: rgba(255,255,255,0.95); }
-    #crosshair:after { transform:translate(-50%,-50%) rotate(90deg); }
-    canvas { display:block; }
+    html,body{height:100%;margin:0;background:#000;overflow:hidden;font-family:system-ui,Arial;}
+    #overlay{position:absolute;left:12px;top:12px;z-index:20;color:#fff;background:rgba(0,0,0,0.35);padding:8px 10px;border-radius:8px;}
+    #fps{position:absolute;right:12px;top:12px;z-index:20;color:#7cff7c;background:rgba(0,0,0,0.35);padding:6px 8px;border-radius:8px;font-family:monospace;}
+    #crosshair{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:18px;height:18px;z-index:15;pointer-events:none;}
+    #crosshair:before,#crosshair:after{content:"";position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:2px;height:10px;background:rgba(255,255,255,0.95);}
+    #crosshair:after{transform:translate(-50%,-50%) rotate(90deg);}
+    canvas{display:block;}
   </style>
 </head>
 <body>
-  <div id="overlay"><strong>FPS — stable camera + centered hands</strong><div style="font-size:13px;margin-top:6px">Click to lock pointer. Move: W A S D · Jump: Space · Run: Shift</div></div>
+  <div id="overlay"><strong>Valve-style BHop — centered hands</strong><div style="font-size:13px;margin-top:6px">Click to lock pointer. Move: W A S D · Jump: Space · Run: Shift</div></div>
   <div id="fps">FPS: --</div>
   <div id="crosshair"></div>
 
 <script type="module">
 import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.154.0/build/three.module.js';
 
-/* ---------------------------
-   Scene & Renderer
-   --------------------------- */
+/* --------- Renderer & Scene --------- */
 const scene = new THREE.Scene();
 const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setSize(innerWidth, innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.4));
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
-window.addEventListener('resize', ()=> {
-  camera.aspect = window.innerWidth / window.innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(window.innerWidth, window.innerHeight);
+window.addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
 });
 
-/* ---------------------------
-   Camera visual + quaternion-based rotation (no direct Euler set)
-   --------------------------- */
-/*
-  We maintain yawAngle & pitchAngle and build a target quaternion each frame:
-    targetQuat = qYaw * qPitch
-  Then slerp the visual camera toward targetQuat for smoothness.
-  This avoids direct Euler juggling and reduces gimbal-like snapping.
-*/
-const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
-const cameraHolder = new THREE.Object3D(); // holds the camera visually (slerped)
+/* --------- Camera rig (visual) --------- */
+const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1000);
+const cameraHolder = new THREE.Object3D(); // smoothed visual follow + rotation slerp
 cameraHolder.add(camera);
 scene.add(cameraHolder);
 
-// initial camera orientation state
-let yawAngle = 0;            // yaw (around world Y)
-let pitchAngle = 0;          // pitch (around local X)
+/* We'll hold yawAngle & pitchAngle and build quaternion target each frame (avoid Euler gimbal). */
+let yawAngle = 0, pitchAngle = 0;
 const pitchLimit = Math.PI/2 - 0.01;
-const sensitivity = 0.0022;
+const sensitivity = 0.0023; // a bit more responsive
 
-// previous quaternion to compute angular delta for hand sway
-let prevCameraQuat = new THREE.Quaternion().copy(cameraHolder.quaternion);
-
-/* ---------------------------
-   Lighting + sky
-   --------------------------- */
-const hemi = new THREE.HemisphereLight(0x87ceeb, 0x222244, 0.7);
-scene.add(hemi);
-const sunLight = new THREE.DirectionalLight(0xffffff, 1.0);
-sunLight.castShadow = true;
-sunLight.shadow.mapSize.set(512,512);
-sunLight.shadow.camera.near = 0.5; sunLight.shadow.camera.far = 300;
-sunLight.shadow.camera.left = -60; sunLight.shadow.camera.right = 60;
-sunLight.shadow.camera.top = 60; sunLight.shadow.camera.bottom = -60;
-scene.add(sunLight);
+/* --------- Lighting & sun/moon --------- */
+const hemi = new THREE.HemisphereLight(0x87ceeb, 0x222244, 0.75); scene.add(hemi);
+const sun = new THREE.DirectionalLight(0xffffff, 1.0); sun.castShadow = true;
+sun.shadow.mapSize.set(512,512); sun.shadow.camera.near = 0.5; sun.shadow.camera.far = 300;
+sun.shadow.camera.left = -60; sun.shadow.camera.right = 60; sun.shadow.camera.top = 60; sun.shadow.camera.bottom = -60;
+scene.add(sun);
 const sunMesh = new THREE.Mesh(new THREE.SphereGeometry(1.6, 12, 8), new THREE.MeshBasicMaterial({ color:0xfff0c8, toneMapped:false }));
 const moonMesh = new THREE.Mesh(new THREE.SphereGeometry(1.2, 10, 8), new THREE.MeshBasicMaterial({ color:0xdde6ff, toneMapped:false }));
 scene.add(sunMesh, moonMesh);
-let timeOfDay = 0.3;
+let timeOfDay = 0.32;
 function updateSun(t){
   const angle = t * Math.PI * 2;
-  const sunDir = new THREE.Vector3(Math.cos(angle), Math.sin(angle), Math.sin(angle*0.6)).normalize();
-  const sunPos = sunDir.clone().multiplyScalar(120);
-  sunLight.position.copy(sunPos);
-  sunLight.target.position.set(0,0,0); sunLight.target.updateMatrixWorld();
-  sunMesh.position.copy(sunPos);
-  moonMesh.position.copy(sunDir.clone().multiplyScalar(-80));
-  const dayColor = new THREE.Color(0x87ceeb), nightColor = new THREE.Color(0x0b1220);
-  const factor = THREE.MathUtils.smoothstep(Math.sin(angle), -0.2, 0.6);
-  renderer.setClearColor(nightColor.clone().lerp(dayColor, factor));
+  const dir = new THREE.Vector3(Math.cos(angle), Math.sin(angle), Math.sin(angle*0.6)).normalize();
+  sun.position.copy(dir.clone().multiplyScalar(120));
+  sun.target.position.set(0,0,0); sun.target.updateMatrixWorld();
+  sunMesh.position.copy(dir.clone().multiplyScalar(120));
+  moonMesh.position.copy(dir.clone().multiplyScalar(-80));
+  const day = new THREE.Color(0x87ceeb), night = new THREE.Color(0x0b1220);
+  const f = THREE.MathUtils.smoothstep(Math.sin(angle), -0.2, 0.6);
+  renderer.setClearColor(night.clone().lerp(day, f));
   hemi.intensity = THREE.MathUtils.lerp(0.08, 0.9, Math.max(0, Math.sin(angle)));
-  sunLight.intensity = THREE.MathUtils.lerp(0.15, 1.4, Math.max(0, Math.sin(angle)));
+  sun.intensity = THREE.MathUtils.lerp(0.15, 1.4, Math.max(0, Math.sin(angle)));
 }
 
-/* ---------------------------
-   Simple world (ground + platforms)
-   --------------------------- */
+/* --------- Simple world --------- */
 const ground = new THREE.Mesh(new THREE.BoxGeometry(500,1,500), new THREE.MeshStandardMaterial({ color:0x55664f }));
 ground.position.y = -0.5; ground.receiveShadow = true; scene.add(ground);
 const grid = new THREE.GridHelper(200, 40, 0x444444, 0x333333); grid.position.y = 0.01; scene.add(grid);
@@ -102,19 +78,16 @@ const grid = new THREE.GridHelper(200, 40, 0x444444, 0x333333); grid.position.y 
 const platforms = [];
 function addPlatform(x,y,z,sx=6,sy=1,sz=6,color=0x8b7d6b){
   const m = new THREE.Mesh(new THREE.BoxGeometry(sx,sy,sz), new THREE.MeshStandardMaterial({ color }));
-  m.position.set(x,y,z); m.castShadow = true; m.receiveShadow = true;
-  scene.add(m);
+  m.position.set(x,y,z); m.castShadow = true; m.receiveShadow = true; scene.add(m);
   platforms.push({ mesh: m, half: new THREE.Vector3(sx/2, sy/2, sz/2) });
 }
-// platforms arranged so scene is visible immediately
-addPlatform(0,2,10,8,1,8,0x8b7d6b);
-addPlatform(6,4,20,6,1,6,0x7fa0a0);
-addPlatform(-6,6,28,4,1,10,0x6a8b8b);
-addPlatform(0,12,36,10,1,10,0xaa6666);
+// Start scene in front of camera so user sees environment instantly
+addPlatform(0, 2, 10, 8,1,8, 0x8b7d6b);
+addPlatform(8, 4, 18, 6,1,6, 0x7fa0a0);
+addPlatform(-8, 6, 26, 4,1,10, 0x6a8b8b);
+addPlatform(0, 12, 36, 10,1,10, 0xaa6666);
 
-/* ---------------------------
-   Player physics (separate collider)
-   --------------------------- */
+/* --------- Player physics (separate collider) --------- */
 const player = {
   height: 1.8,
   radius: 0.35,
@@ -122,15 +95,14 @@ const player = {
   vel: new THREE.Vector3(),
   speed: 6,
   runMul: 1.8,
-  jumpSpeed: 7.2,
+  jumpSpeed: 7.3,
   onGround: false
 };
-cameraHolder.position.copy(player.pos); // immediate visible placement
+cameraHolder.position.copy(player.pos); // visible start
 
-function colliderCenter(pos, out=new THREE.Vector3()){ return out.set(pos.x, pos.y - (player.height/2 - player.radius), pos.z); }
-function colliderHalf(){ return new THREE.Vector3(player.radius, player.height/2, player.radius); }
-
-function aabbOverlap(aC, aH, bC, bH){
+function centerFromPos(pos, out=new THREE.Vector3()){ return out.set(pos.x, pos.y - (player.height/2 - player.radius), pos.z); }
+function halfVec(){ return new THREE.Vector3(player.radius, player.height/2, player.radius); }
+function aabbOverlap(aC,aH,bC,bH){
   const dx = aC.x - bC.x; const px = (aH.x + bH.x) - Math.abs(dx); if (px <= 0) return null;
   const dy = aC.y - bC.y; const py = (aH.y + bH.y) - Math.abs(dy); if (py <= 0) return null;
   const dz = aC.z - bC.z; const pz = (aH.z + bH.z) - Math.abs(dz); if (pz <= 0) return null;
@@ -141,33 +113,29 @@ function aabbOverlap(aC, aH, bC, bH){
   return overlap;
 }
 
-/* ---------------------------
-   Controls & pointer lock (we only update yawAngle & pitchAngle from mouse)
-   --------------------------- */
+/* --------- Controls & pointer lock --------- */
 const input = { f:0,b:0,l:0,r:0, run:0, jumpHeld:false };
 let jumpRequested = false, jumpBuffer = 0, maxJumpBuffer = 0.14;
-
 window.addEventListener('keydown', e=>{
-  if (e.code === 'KeyW') input.f = 1;
-  if (e.code === 'KeyS') input.b = 1;
-  if (e.code === 'KeyA') input.l = 1;
-  if (e.code === 'KeyD') input.r = 1;
-  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.run = 1;
-  if (e.code === 'Space') { input.jumpHeld = true; jumpRequested = true; jumpBuffer = maxJumpBuffer; }
+  if (e.code==='KeyW') input.f=1;
+  if (e.code==='KeyS') input.b=1;
+  if (e.code==='KeyA') input.l=1;
+  if (e.code==='KeyD') input.r=1;
+  if (e.code==='ShiftLeft' || e.code==='ShiftRight') input.run = 1;
+  if (e.code==='Space'){ input.jumpHeld = true; jumpRequested = true; jumpBuffer = maxJumpBuffer; }
 });
 window.addEventListener('keyup', e=>{
-  if (e.code === 'KeyW') input.f = 0;
-  if (e.code === 'KeyS') input.b = 0;
-  if (e.code === 'KeyA') input.l = 0;
-  if (e.code === 'KeyD') input.r = 0;
-  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') input.run = 0;
-  if (e.code === 'Space') { input.jumpHeld = false; jumpRequested = false; }
+  if (e.code==='KeyW') input.f=0;
+  if (e.code==='KeyS') input.b=0;
+  if (e.code==='KeyA') input.l=0;
+  if (e.code==='KeyD') input.r=0;
+  if (e.code==='ShiftLeft' || e.code==='ShiftRight') input.run = 0;
+  if (e.code==='Space'){ input.jumpHeld = false; jumpRequested = false; }
 });
 
 let pointerLocked = false;
 document.addEventListener('mousemove', e=>{
   if (!pointerLocked) return;
-  // update angles only — DO NOT apply Euler rotation to the camera directly
   yawAngle -= e.movementX * sensitivity;
   pitchAngle -= e.movementY * sensitivity;
   pitchAngle = Math.max(-pitchLimit, Math.min(pitchLimit, pitchAngle));
@@ -178,264 +146,318 @@ document.addEventListener('pointerlockchange', ()=> {
   document.getElementById('overlay').style.opacity = pointerLocked ? '0.6' : '1';
 });
 
-/* ---------------------------
-   Simple particle emitter (pooled points)
-   --------------------------- */
-const maxP = 64;
-const pPos = new Float32Array(maxP*3);
-const pVel = new Float32Array(maxP*3);
-const pLife = new Float32Array(maxP);
-for (let i=0;i<maxP;i++){ pPos[i*3]=pPos[i*3+1]=pPos[i*3+2]=9999; pLife[i]=0; }
-const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
-const pMat = new THREE.PointsMaterial({ size:0.08, transparent:true, opacity:0.85, depthWrite:false });
-const particleSys = new THREE.Points(pGeo, pMat); particleSys.frustumCulled = false; scene.add(particleSys);
-let pTimer = 0, pInterval = 0.16;
-function spawnP(x,y,z, vx,vy,vz, life=0.9){
-  for (let i=0;i<maxP;i++){
-    if (pLife[i] <= 0){
-      const pi = i*3;
-      pPos[pi]=x; pPos[pi+1]=y; pPos[pi+2]=z;
-      pVel[pi]=vx; pVel[pi+1]=vy; pVel[pi+2]=vz;
-      pLife[i]=life; return;
+/* --------- Particle system (rarer & wider spread) --------- */
+const MAX_P = 64;
+const pp = new Float32Array(MAX_P*3);
+const pv = new Float32Array(MAX_P*3);
+const pl = new Float32Array(MAX_P);
+for (let i=0;i<MAX_P;i++){ pp[i*3]=pp[i*3+1]=pp[i*3+2]=9999; pl[i]=0; }
+const pGeo = new THREE.BufferGeometry(); pGeo.setAttribute('position', new THREE.BufferAttribute(pp, 3));
+const pMat = new THREE.PointsMaterial({ size:0.09, transparent:true, opacity:0.85, depthWrite:false });
+const pSys = new THREE.Points(pGeo, pMat); pSys.frustumCulled = false; scene.add(pSys);
+let pTimer = 0; const pInterval = 0.24; // spawn even less frequently
+
+function spawnParticle(x,y,z,vx,vy,vz,life=0.9){
+  for (let i=0;i<MAX_P;i++){
+    if (pl[i] <= 0){
+      const pi = i*3; pp[pi]=x; pp[pi+1]=y; pp[pi+2]=z; pv[pi]=vx; pv[pi+1]=vy; pv[pi+2]=vz; pl[i]=life; return;
     }
   }
 }
 
-/* ---------------------------
-   Centered hands (x = 0, same y) + gentle sway from camera angular delta
-   --------------------------- */
+/* --------- Centered hands: wider separation & sway + vertical movement on jump/fall --------- */
 const hands = new THREE.Object3D();
 camera.add(hands);
-// Important: center horizontally (x=0) and don't change Y
+// center horizontally (x = 0), keep Y base unchanged
 hands.position.set(0, -0.28, -0.48);
 
-const handMat = new THREE.MeshStandardMaterial({ color: 0xd6b07a });
-const leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.22,0.44), handMat);
-const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.22,0.22,0.44), handMat);
-leftHand.position.set(-0.22, 0, 0.05);
-rightHand.position.set(0.22, 0, 0.05);
+const handM = new THREE.MeshStandardMaterial({ color: 0xd6b07a });
+const leftHand = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.26,0.5), handM);
+const rightHand = new THREE.Mesh(new THREE.BoxGeometry(0.28,0.26,0.5), handM);
+// spaced out more so they aren't too close
+leftHand.position.set(-0.36, 0, 0.06);
+rightHand.position.set( 0.36, 0, 0.06);
 leftHand.castShadow = rightHand.castShadow = true;
 hands.add(leftHand, rightHand);
 
-// base positions to lerp from
-const baseHandsPos = new THREE.Vector3().copy(hands.position);
-const baseLeftRotZ = leftHand.rotation.z, baseRightRotZ = rightHand.rotation.z;
+// base states to lerp toward
+const baseHandsPos = hands.position.clone();
+const baseLeftZ = leftHand.rotation.z, baseRightZ = rightHand.rotation.z;
 
-/* ---------------------------
-   Physics step (simple AABB + bhop-friendly)
-   --------------------------- */
-const gravity = -20;
+/* previous quaternion for angular delta calculation (hand sway) */
+let prevQuat = cameraHolder.quaternion.clone();
+
+/* --------- Valve-style BHop physics implementation --------- */
+/* Implementation note:
+   - Ground accel and friction model similar to classic Source/Quake-inspired approach.
+   - Air accel uses the classical approach: compute wishdir and wishspeed, then apply accel only if addspeed > 0.
+   - This preserves and allows incremental horizontal speed increases from well-timed strafe+jump (bhop).
+*/
+const GRAV = -20.0;
+
 function physicsStep(dt){
+  // jump buffer timer
   if (jumpBuffer > 0) jumpBuffer -= dt;
+
   // inputs
-  const forward = input.f - input.b;
-  const strafe = input.r - input.l;
+  const f = input.f - input.b;
+  const s = input.r - input.l;
   const run = input.run ? player.runMul : 1;
-  const wishSpeed = player.speed * run;
+  const maxSpeed = player.speed * run;
+
+  // yaw-only orientation for movement
   const yaw = yawAngle;
   const fw = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).setY(0).normalize();
   const rt = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).setY(0).normalize();
-  const wish = new THREE.Vector3(); wish.addScaledVector(fw, forward); wish.addScaledVector(rt, strafe);
-  if (wish.lengthSq()>0) wish.normalize();
 
+  const wish = new THREE.Vector3();
+  wish.addScaledVector(fw, f);
+  wish.addScaledVector(rt, s);
+  let wishlen = wish.length();
+  let wishdir = wishlen > 0 ? wish.normalize() : new THREE.Vector3();
+
+  // ground vs air
   if (player.onGround){
-    if (wish.lengthSq() === 0){
-      player.vel.x *= Math.pow(0.001, dt); player.vel.z *= Math.pow(0.001, dt);
-    } else {
-      const tx = wish.x * wishSpeed; const tz = wish.z * wishSpeed;
-      player.vel.x = THREE.MathUtils.lerp(player.vel.x, tx, Math.min(1, 20*dt));
-      player.vel.z = THREE.MathUtils.lerp(player.vel.z, tz, Math.min(1, 20*dt));
+    // ground friction: a small model to reduce speed when idle
+    const friction = 8.0; // tweakable, higher = stops faster
+    const speed = Math.hypot(player.vel.x, player.vel.z);
+    if (speed > 0.001){
+      const drop = speed * friction * dt;
+      const newSpeed = Math.max(0, speed - drop);
+      const scale = newSpeed / Math.max(speed, 1e-6);
+      player.vel.x *= scale; player.vel.z *= scale;
     }
+    // ground acceleration (quick & responsive)
+    if (wishlen > 0){
+      const wishspeed = maxSpeed;
+      const accel = 100.0; // strong ground accel for immediate control
+      const curr = player.vel.x * wishdir.x + player.vel.z * wishdir.z;
+      const addspeed = wishspeed - curr;
+      if (addspeed > 0){
+        let accelspeed = accel * dt * wishspeed;
+        if (accelspeed > addspeed) accelspeed = addspeed;
+        player.vel.x += wishdir.x * accelspeed;
+        player.vel.z += wishdir.z * accelspeed;
+      }
+    }
+    // jump if requested or buffered
     if ((jumpRequested || jumpBuffer > 0 || input.jumpHeld) && player.onGround){
-      player.vel.y = player.jumpSpeed; player.onGround = false; jumpRequested = false; jumpBuffer = 0;
+      player.vel.y = player.jumpSpeed;
+      player.onGround = false;
+      jumpRequested = false; jumpBuffer = 0;
     }
   } else {
-    // air accel
-    const airAccel = 9.0;
-    if (wish.lengthSq() > 0){
-      const horiz = new THREE.Vector3(player.vel.x, 0, player.vel.z);
-      const current = horiz.dot(wish);
-      const add = wishSpeed - current;
-      if (add > 0){
-        const accel = Math.min(add, airAccel * dt);
-        player.vel.x += wish.x * accel; player.vel.z += wish.z * accel;
+    // AIR movement: classic air-accel formula used in Valve/Quake engines
+    if (wishlen > 0){
+      const wishspeed = maxSpeed;
+      const curr = player.vel.x * wishdir.x + player.vel.z * wishdir.z;
+      let addspeed = wishspeed - curr;
+      if (addspeed > 0){
+        const airAccel = 10.5; // air accel constant (tweak for feel)
+        let accelspeed = airAccel * dt * wishspeed;
+        if (accelspeed > addspeed) accelspeed = addspeed;
+        player.vel.x += wishdir.x * accelspeed;
+        player.vel.z += wishdir.z * accelspeed;
       }
-      const hs = Math.hypot(player.vel.x, player.vel.z);
-      const maxAir = Math.max(wishSpeed*1.1, player.speed*1.6);
-      if (hs > maxAir){ const s = maxAir/hs; player.vel.x *= s; player.vel.z *= s; }
     }
-    player.vel.x *= 0.999; player.vel.z *= 0.999;
+    // optional small air cap to prevent runaway but leave room for bhop speed gain
+    const horiz = Math.hypot(player.vel.x, player.vel.z);
+    const maxAir = Math.max(maxSpeed * 2.6, player.speed * 2.6);
+    if (horiz > maxAir){
+      const s = maxAir / horiz;
+      player.vel.x *= s; player.vel.z *= s;
+    }
+    // subtle damping in air to keep stability
+    player.vel.x *= 0.9995; player.vel.z *= 0.9995;
   }
-  player.vel.y += gravity * dt;
+
+  // gravity
+  player.vel.y += GRAV * dt;
+
+  // integrate
   const next = player.pos.clone().addScaledVector(player.vel, dt);
 
-  // ground
+  // ground collision (ground top at y=0)
   const feet = next.y - player.height/2;
   if (feet < 0){
-    next.y = player.height/2; if (player.vel.y < 0){ player.vel.x *= 0.99; player.vel.z *= 0.99; }
-    player.vel.y = 0; player.onGround = true;
-    if ((jumpRequested || jumpBuffer > 0) && input.jumpHeld){
-      player.vel.y = player.jumpSpeed; player.onGround = false; jumpRequested = false; jumpBuffer = 0;
+    // landed
+    next.y = player.height/2;
+    if (player.vel.y < 0){
+      // preserve horizontal momentum for bhop chaining (tiny friction)
+      player.vel.x *= 0.993; player.vel.z *= 0.993;
     }
-  } else player.onGround = false;
-
-  // platform collisions
-  const aC = colliderCenter(next); const aH = colliderHalf();
-  for (const p of platforms){
-    const bC = p.mesh.position.clone(); const bH = p.half.clone();
-    const over = aabbOverlap(aC, aH, bC, bH);
-    if (!over) continue;
-    if (Math.abs(over.y) > 0){
-      next.y += over.y;
-      if (over.y > 0){ player.vel.y = 0; player.onGround = true; }
-      else { player.vel.y = Math.min(0, player.vel.y); }
-    } else if (Math.abs(over.x) > 0){ next.x += over.x; player.vel.x = 0; }
-    else if (Math.abs(over.z) > 0){ next.z += over.z; player.vel.z = 0; }
-    aC.copy(colliderCenter(next, aC));
+    player.vel.y = 0;
+    player.onGround = true;
+    // auto-jump assist if buffered (makes bhop chaining possible)
+    if ((jumpRequested || jumpBuffer > 0) && input.jumpHeld){
+      player.vel.y = player.jumpSpeed;
+      player.onGround = false;
+      jumpRequested = false; jumpBuffer = 0;
+      // small horizontal nudge to help chaining speed if user timed well
+      player.vel.x *= 1.01; player.vel.z *= 1.01;
+    }
+  } else {
+    player.onGround = false;
   }
 
+  // platform collisions (AABB)
+  const aC = centerFromPos(next), aH = halfVec();
+  for (const p of platforms){
+    const bC = p.mesh.position.clone(), bH = p.half.clone();
+    const ov = aabbOverlap(aC, aH, bC, bH);
+    if (!ov) continue;
+    if (Math.abs(ov.y) > 0){
+      next.y += ov.y;
+      if (ov.y > 0){ player.vel.y = 0; player.onGround = true; }
+      else { player.vel.y = Math.min(0, player.vel.y); }
+    } else if (Math.abs(ov.x) > 0){ next.x += ov.x; player.vel.x = 0; }
+    else if (Math.abs(ov.z) > 0){ next.z += ov.z; player.vel.z = 0; }
+    aC.copy(centerFromPos(next, aC));
+  }
+
+  // finalize
   player.pos.copy(next);
   player.vel.x *= 0.999; player.vel.z *= 0.999;
 }
 
-/* ---------------------------
-   Visual rotation smoothing with quaternions (prevents snap & gimbal issues)
-   --------------------------- */
-const qYaw = new THREE.Quaternion(), qPitch = new THREE.Quaternion(), targetQuat = new THREE.Quaternion();
-function updateCameraRotation(dt){
-  // Build target quaternion from yaw and pitch angles:
-  // target = qYaw * qPitch  (apply yaw first, then pitch)
+/* --------- Visual smoothing & rotation slerp (less smoothing) --------- */
+const qYaw = new THREE.Quaternion(), qPitch = new THREE.Quaternion(), targetQ = new THREE.Quaternion();
+function updateRotationSlerp(dt){
   qYaw.setFromAxisAngle(new THREE.Vector3(0,1,0), yawAngle);
   qPitch.setFromAxisAngle(new THREE.Vector3(1,0,0), pitchAngle);
-  targetQuat.copy(qYaw).multiply(qPitch); // qYaw * qPitch
-
-  // slerp visual camera quaternion towards target for smoothness
-  cameraHolder.quaternion.slerp(targetQuat, Math.min(1, 10 * dt)); // 10*dt gives snappy but smooth result
+  targetQ.copy(qYaw).multiply(qPitch);
+  // less smoothing (snappier) but still smooth: increase multiplier
+  cameraHolder.quaternion.slerp(targetQ, Math.min(1, 18 * dt)); // tweak multiplier for snappy feel
 }
 
-/* ---------------------------
-   Hand sway driven by camera angular delta (small & stable)
-   --------------------------- */
-function updateHandsFromAngular(dt){
-  // compute delta quaternion from prev -> current visual quaternion
+/* also move visual camera toward player but allow less smoothing (so it follows faster) */
+function updatePositionVisual(dt){
+  const target = player.pos.clone();
+  const diff = target.clone().sub(cameraHolder.position);
+  const dist = diff.length();
+  // allow larger per-frame move so camera is snappier
+  const maxMove = Math.max(1.2, player.speed * 3.0) * dt;
+  if (dist <= maxMove) cameraHolder.position.copy(target);
+  else cameraHolder.position.addScaledVector(diff.normalize(), maxMove);
+}
+
+/* --------- Hand sway from angular delta + vertical jump/fall motion --------- */
+let prevCameraQ = cameraHolder.quaternion.clone();
+let handsVertical = 0; // for jump/fall movement (will be lerped)
+function updateHands(dt){
+  // angular delta
   const curQ = cameraHolder.quaternion;
-  const dq = prevCameraQuat.clone().conjugate().multiply(curQ); // dq = prev^-1 * cur
-  dq.normalize();
-  // convert dq to axis-angle (small-angle approx)
+  const dq = prevCameraQ.clone().conjugate().multiply(curQ).normalize();
+  // angle of rotation
   const angle = 2 * Math.acos(Math.max(-1, Math.min(1, dq.w)));
   let swayX = 0, swayZ = 0, swayRot = 0;
   if (angle > 1e-6){
-    const s = Math.sin(angle/2);
-    const ax = dq.x / (s||1); const ay = dq.y / (s||1); const az = dq.z / (s||1);
-    // We use yaw component (ay) and pitch component (ax) to create small sway offsets
-    swayX = ay * angle * 0.22;        // left-right sway
-    swayZ = ax * angle * 0.24;        // forward-back sway (small)
-    swayRot = ay * angle * 0.6;       // small rotation
+    const s = Math.sin(angle/2) || 1e-6;
+    const ax = dq.x / s, ay = dq.y / s, az = dq.z / s;
+    // scale more strongly than before for visible sway
+    swayX = ay * angle * 0.66;   // stronger left-right sway
+    swayZ = ax * angle * 0.66;   // forward/back sway
+    swayRot = ay * angle * 1.45; // stronger rotation
   }
-  // Lerp hands position.x toward centered base + swayX, but keep Y unchanged (user asked)
-  const targetX = baseHandsPos.x + swayX;
-  hands.position.x = THREE.MathUtils.lerp(hands.position.x, targetX, 0.12);
-  // keep Y as baseHandsPos.y (don't change Y)
-  hands.position.y = baseHandsPos.y;
-  // slight Z lerp
-  const targetZ = baseHandsPos.z + swayZ;
-  hands.position.z = THREE.MathUtils.lerp(hands.position.z, targetZ, 0.12);
-  // small rotation z for left/right hand
-  leftHand.rotation.z = THREE.MathUtils.lerp(leftHand.rotation.z, baseLeftRotZ + swayRot * 0.3, 0.08);
-  rightHand.rotation.z = THREE.MathUtils.lerp(rightHand.rotation.z, baseRightRotZ - swayRot * 0.3, 0.08);
+  // vertical motion based on player vertical velocity (up on jump, down on fall)
+  const verticalTarget = THREE.MathUtils.clamp(player.vel.y * 0.06, -0.25, 0.25); // scale and clamp
+  handsVertical = THREE.MathUtils.lerp(handsVertical, verticalTarget, 8 * dt);
 
-  // store current quaternion for next frame
-  prevCameraQuat.copy(curQ);
+  // apply to hands: keep Y base but add vertical + small bob
+  const targetX = baseHandsPos.x + swayX;
+  const targetZ = baseHandsPos.z + swayZ;
+  hands.position.x = THREE.MathUtils.lerp(hands.position.x, targetX, 0.16);
+  hands.position.z = THREE.MathUtils.lerp(hands.position.z, targetZ, 0.16);
+  hands.position.y = THREE.MathUtils.lerp(hands.position.y, baseHandsPos.y + handsVertical, 0.12);
+
+  // rotate hands outward/inward slightly based on swayRot
+  leftHand.rotation.z = THREE.MathUtils.lerp(leftHand.rotation.z, baseLeftZ + swayRot * 0.45, 0.12);
+  rightHand.rotation.z = THREE.MathUtils.lerp(rightHand.rotation.z, baseRightZ - swayRot * 0.45, 0.12);
+
+  prevCameraQ.copy(curQ);
 }
 
-/* ---------------------------
-   Particle update (less frequent, wider spread)
-   --------------------------- */
-function updateParticles(dt){
+/* --------- Particles update (rarer + spread larger) --------- */
+function stepParticles(dt){
   pTimer -= dt;
   if (pTimer <= 0){
-    const moving = Math.hypot(player.vel.x, player.vel.z) > 0.12;
+    const moving = Math.hypot(player.vel.x, player.vel.z) > 0.14;
     if (moving && player.onGround){
-      const clusters = Math.random() < 0.3 ? 2 : 1;
+      const clusters = Math.random() < 0.25 ? 2 : 1;
       for (let i=0;i<clusters;i++){
-        const spread = 0.9;
+        const spread = 1.2; // wider spread
         const ang = Math.random()*Math.PI*2;
         const r = Math.random()*spread;
         const forward = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
-        const foot = player.pos.clone().addScaledVector(forward, 0.2);
+        const foot = player.pos.clone().addScaledVector(forward, 0.26);
         foot.y = player.pos.y - player.height/2 + 0.06;
         foot.x += Math.cos(ang)*r; foot.z += Math.sin(ang)*r;
-        const vx = (Math.random()-0.5)*0.8, vy = 0.8 + Math.random()*0.5, vz = (Math.random()-0.5)*0.8;
-        spawnP(foot.x, foot.y, foot.z, vx, vy, vz, 0.9 + Math.random()*0.6);
+        const vx = (Math.random()-0.5)*0.9, vy = 0.9 + Math.random()*0.6, vz = (Math.random()-0.5)*0.9;
+        spawnParticle(foot.x, foot.y, foot.z, vx, vy, vz, 0.9 + Math.random()*0.6);
       }
     }
     pTimer = pInterval;
   }
-  for (let i=0;i<maxP;i++){
-    if (pLife[i] > 0){
+  for (let i=0;i<MAX_P;i++){
+    if (pl[i] > 0){
       const pi = i*3;
-      pLife[i] -= dt;
-      pVel[pi+1] += gravity * 0.35 * dt;
-      pPos[pi] += pVel[pi]*dt;
-      pPos[pi+1] += pVel[pi+1]*dt;
-      pPos[pi+2] += pVel[pi+2]*dt;
-      if (pLife[i] <= 0) { pPos[pi]=pPos[pi+1]=pPos[pi+2]=9999; }
+      pl[i] -= dt;
+      pv[pi+1] += GRAV * 0.35 * dt;
+      pp[pi] += pv[pi]*dt;
+      pp[pi+1] += pv[pi+1]*dt;
+      pp[pi+2] += pv[pi+2]*dt;
+      if (pl[i] <= 0){ pp[pi]=pp[pi+1]=pp[pi+2]=9999; }
     }
   }
   pGeo.attributes.position.needsUpdate = true;
-  let active=0; for (let i=0;i<maxP;i++) if (pLife[i] > 0) active++;
-  pMat.opacity = THREE.MathUtils.clamp(1 - active/maxP*0.8, 0.22, 1);
+  // opacity reduction when many active
+  let active=0; for (let i=0;i<MAX_P;i++) if (pl[i] > 0) active++;
+  pMat.opacity = THREE.MathUtils.clamp(1 - active/MAX_P*0.8, 0.22, 1);
 }
 
-/* ---------------------------
-   Animate loop
-   --------------------------- */
+/* --------- FPS / Loop --------- */
 let last = performance.now()/1000;
-let fpsFrames=0, fpsT=0;
-
+let ff = 0, ft = 0;
 function animate(){
   const now = performance.now()/1000;
   let dt = now - last; last = now;
   if (dt > 0.05) dt = 0.05;
 
-  timeOfDay += dt * 0.02; timeOfDay %= 1; updateSun(timeOfDay);
+  // update sky
+  timeOfDay += dt * 0.018;
+  timeOfDay %= 1;
+  updateSun(timeOfDay);
 
+  // physics
   physicsStep(dt);
 
-  // position smoothing (cap per-frame move)
-  const targetPos = player.pos.clone();
-  const diff = targetPos.clone().sub(cameraHolder.position);
-  const dist = diff.length();
-  const maxMove = Math.max(0.6, player.speed * 2.2) * dt;
-  if (dist <= maxMove) cameraHolder.position.copy(targetPos);
-  else cameraHolder.position.addScaledVector(diff.normalize(), maxMove);
+  // visual follow (snappier)
+  updatePositionVisual(dt);
 
-  // rotation smoothing via quaternions
-  updateCameraRotation(dt);
+  // rotation slerp (less smoothing => snappier)
+  updateRotationSlerp(dt);
 
-  // hand sway derived from camera angular change
-  updateHandsFromAngular(dt);
+  // hands sway & vertical movement
+  updateHands(dt);
 
   // particles
-  updateParticles(dt);
+  stepParticles(dt);
 
+  // render
   renderer.render(scene, camera);
 
-  fpsFrames++; fpsT += dt;
-  if (fpsT >= 0.5){
-    document.getElementById('fps').textContent = 'FPS: ' + Math.round(fpsFrames / fpsT);
-    fpsFrames = 0; fpsT = 0;
-  }
+  // fps display
+  ff++; ft += dt;
+  if (ft >= 0.5){ document.getElementById('fps').textContent = 'FPS: ' + Math.round(ff/ft); ff=0; ft=0; }
 
   requestAnimationFrame(animate);
 }
 animate();
 
-/* Prevent scrolling while pointer locked */
-window.addEventListener('keydown', (e) => {
+/* Prevent page scroll while playing */
+window.addEventListener('keydown', e => {
   if (document.pointerLockElement === renderer.domElement) {
-    const keys = ['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'];
-    if (keys.includes(e.code)) e.preventDefault();
+    if (['Space','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)) e.preventDefault();
   }
 });
 
