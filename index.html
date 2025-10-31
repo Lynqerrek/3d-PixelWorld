@@ -1,1 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Pixel Worlds 3D — Seeded Menu, Islands & Water (Single file)</title>
+  <style>
+    :root {
+      --accent1: #ffd36b;
+      --accent2: #ffae6b;
+      --panel: rgba(3,10,21,0.72);
+      --muted: #9fb7cc;
+      --glass: rgba(255,255,255,0.035);
+    }
+    html,body{height:100%;margin:0;background:#061022;color:#e6f0fb;font-family:Inter,ui-sans-serif,system-ui,Segoe UI,Roboto,Arial}
+    canvas{display:block; image-rendering: pixelated; width:100vw; height:100vh;}
+    .hud{position:fixed;left:12px;top:12px;z-index:30;background:var(--panel);padding:10px;border-radius:8px;font-size:13px}
+    .hint{position:fixed;right:12px;bottom:12px;background:var(--panel);padding:8px;border-radius:8px;font-size:13px}
+    a{color:#9fe0ff}
+    /* Menu (copied layout from your original) */
+    #menu {
+      position:fixed; inset:0; display:flex; align-items:center; justify-content:center; z-index:60;
+      background: linear-gradient(180deg, rgba(2,6,12,0.55), rgba(2,6,12,0.8));
+      backdrop-filter: blur(4px);
+    }
+    #menuCard {
+      width:680px; max-width:94%; background:linear-gradient(180deg,#061227,#08192e); border-radius:14px; padding:22px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.66); color:#eaf6ff; font-family: Inter, system-ui, sans-serif;
+      display:grid; grid-template-columns: 1fr 220px; gap:16px; align-items:start;
+    }
+    #menuLeft h1{ margin:0 0 6px 0; font-size:24px }
+    .muted{ color:var(--muted); font-size:13px; margin-top:6px }
+    .row{ display:flex; gap:8px; align-items:center; margin-top:12px }
+    input[type="text"]{ flex:1; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.06); background:var(--glass); color:#eaf6ff; font-family:monospace }
+    .btn { padding:12px 14px; border-radius:10px; background:linear-gradient(180deg,var(--accent1),var(--accent2)); border:none; cursor:pointer; font-weight:700; color:#112; box-shadow:0 6px 18px rgba(0,0,0,0.45) }
+    .btn.ghost { background:transparent; border:1px solid rgba(255,255,255,0.06); color:#eaf6ff; font-weight:600; box-shadow:none }
+    label.small{ font-size:12px; color:var(--muted); margin-right:6px }
+    input[type="range"]{ width:100% }
+    select{ padding:8px 10px; border-radius:8px; background:var(--glass); border:1px solid rgba(255,255,255,0.04); color:#eaf6ff }
+
+    #preview { background:linear-gradient(180deg,#071627,#05202b); border-radius:8px; padding:8px; display:flex; flex-direction:column; gap:8px; align-items:center; }
+    #miniCanvas{ width:200px; height:120px; background:#02131a; display:block; border-radius:6px; image-rendering: pixelated; }
+    .metaRow{ display:flex; gap:8px; width:100%; justify-content:space-between; font-size:13px; color:var(--muted) }
+
+    /* loading overlay */
+    #loadingOverlay { position:fixed; left:0; top:0; right:0; bottom:0; display:none; align-items:center; justify-content:center; z-index:80;
+      background: linear-gradient(180deg, rgba(3,6,12,0.78), rgba(3,6,12,0.84));
+    }
+    #loadingCard { width:480px; max-width:90%; padding:18px; border-radius:10px; text-align:center; background:linear-gradient(180deg,#05111c,#071826); color:#fff }
+    #loaderBar { width:100%; height:12px; background:rgba(255,255,255,0.05); border-radius:8px; overflow:hidden }
+    #loaderFill { height:100%; width:0%; background:linear-gradient(90deg,var(--accent1),var(--accent2)); }
+
+    .mutefloat { font-size:12px; color:var(--muted) }
+
+    @media (max-width:720px){
+      #menuCard { grid-template-columns: 1fr; padding:16px }
+      #miniCanvas { width:100%; height:120px }
+    }
+  </style>
+</head>
+<body>
+  <canvas id="game"></canvas>
+
+  <div class="hud" id="hud">Ready</div>
+  <div class="hint">Controls: ←/A →/D • Space/W/↑ to jump • Mousewheel to zoom • Double-click to reset zoom • Esc to toggle menu</div>
+
+  <!-- Menu (same structure) -->
+  <div id="menu" role="dialog" aria-modal="true">
+    <div id="menuCard">
+      <div id="menuLeft">
+        <h1>Pixel Worlds — Create World (3D)</h1>
+        <div class="muted">Seeded block world. Preview updates in real time.</div>
+
+        <div class="row" style="margin-top:14px">
+          <input id="seedInput" type="text" placeholder="Enter seed (e.g. MyIsland42)">
+          <button class="btn" id="randomBtn">RANDOM</button>
+        </div>
+
+        <div class="row">
+          <label class="small">World type</label>
+          <select id="worldType">
+            <option value="islands">Islands (many small islands & water)</option>
+            <option value="mainland">Mainland (continuous land, mountains & one lake)</option>
+          </select>
+          <div style="flex:1"></div>
+        </div>
+
+        <div class="row" style="margin-top:6px">
+          <div style="flex:1">
+            <label class="small muted">Width: <span id="widthVal">180</span></label>
+            <input id="widthRange" type="range" min="80" max="420" value="180">
+          </div>
+          <div style="width:120px">
+            <label class="small muted">Height: <span id="heightVal">40</span></label>
+            <input id="heightRange" type="range" min="18" max="80" value="40">
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:10px">
+          <label class="small">Start zoom</label>
+          <select id="startZoom">
+            <option value="0.9">0.9x</option>
+            <option value="1.2">1.2x</option>
+            <option value="1.6" selected>1.6x</option>
+          </select>
+          <div style="flex:1"></div>
+        </div>
+
+        <div class="row" style="margin-top:14px;">
+          <button class="btn" id="playBtn" style="flex:1; font-size:16px;">PLAY</button>
+          <button class="btn ghost" id="regenBtn">PREVIEW</button>
+        </div>
+
+        <div class="mutefloat" style="margin-top:10px">Seed hex: <span id="seedHex" style="font-family:monospace"></span></div>
+      </div>
+
+      <div id="preview">
+        <canvas id="miniCanvas" width="200" height="120"></canvas>
+        <div class="metaRow"><div id="modeLabel">Mode: —</div><div id="sizeLabel">Size: —</div></div>
+        <div style="width:100%; display:flex; gap:8px;">
+          <button class="btn ghost" id="copySeed">Copy seed</button>
+          <div style="flex:1"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- loading overlay -->
+  <div id="loadingOverlay"><div id="loadingCard">
+    <div style="font-size:20px; font-weight:700; margin-bottom:6px">Generating world…</div>
+    <div style="font-size:13px; margin-bottom:12px; color:#dbeefc">Preparing terrain & features</div>
+    <div id="loaderBar"><div id="loaderFill"></div></div>
+    <div style="margin-top:8px; font-size:12px; color:#bfe0ff" id="loaderText">0%</div>
+  </div></div>
+
+<script>
+/*
+  Single-file 3D-ish block world:
+  - Seeded generation (fnv1a + mulberry32)
+  - Islands & Mainland modes (same generation idea)
+  - Pseudo-3D oblique projection (cabinet-style) for block faces
+  - Player physics, collisions with blocks (tile-based)
+  - Water with animated surface
+  - Mini preview in menu
+  - All in one script, no external libs
+*/
+
+/* --------- DOM & basic setup --------- */
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d', { alpha: false });
+const hud = document.getElementById('hud');
+const menu = document.getElementById('menu');
+const seedInput = document.getElementById('seedInput');
+const randomBtn = document.getElementById('randomBtn');
+const widthRange = document.getElementById('widthRange');
+const heightRange = document.getElementById('heightRange');
+const widthVal = document.getElementById('widthVal');
+const heightVal = document.getElementById('heightVal');
+const playBtn = document.getElementById('playBtn');
+const regenBtn = document.getElementById('regenBtn');
+const worldTypeSel = document.getElementById('worldType');
+const startZoomSel = document.getElementById('startZoom');
+const seedHex = document.getElementById('seedHex');
+const miniCanvas = document.getElementById('miniCanvas');
+const miniCtx = miniCanvas.getContext('2d');
+const modeLabel = document.getElementById('modeLabel');
+const sizeLabel = document.getElementById('sizeLabel');
+const copySeed = document.getElementById('copySeed');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loaderFill = document.getElementById('loaderFill');
+const loaderText = document.getElementById('loaderText');
+
+function resize(){ canvas.width = innerWidth; canvas.height = innerHeight; }
+addEventListener('resize', resize); resize();
+
+/* --------- world & tile params --------- */
+const TILE = 28;             // block size (world units)
+let WORLD_W = 180;
+let WORLD_H = 40;
+let tiles = new Uint8Array(0); // 0 empty, 1 ground, 2 water
+let heightMap = [];
+let waterOffset = 0;
+let clouds = [];
+
+/* --------- seeded RNG (fnv1a -> mulberry32) --------- */
+function xfnv1a(str){
+  let h = 2166136261 >>> 0;
+  for(let i=0;i<str.length;i++){ h ^= str.charCodeAt(i); h = Math.imul(h,16777619); }
+  return h >>> 0;
+}
+function mulberry32(seed){
+  return function(){
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+}
+
+/* --------- helper / indexing --------- */
+function idx(tx,ty){ return ty*WORLD_W + tx; }
+function tileAt(tx,ty){ if(tx<0||tx>=WORLD_W||ty<0||ty>=WORLD_H) return 1; return tiles[idx(tx,ty)]; }
+
+/* --------- camera (3D-ish oblique) --------- */
+/*
+  We'll render using a cabinet projection (oblique):
+   screenX = (worldX - camX) * scale + (worldZ - camZ) * depthShearX
+   screenY = (worldY - camY) * scale + (worldZ - camZ) * depthShearY
+  worldZ is the depth of block (we draw blocks extruded along +z)
+*/
+const camera = { x:0, y:0, z:0, scale:1.6, targetScale:1.6 };
+const depthShearX = 0.45;  // how much depth affects X (gives 3D feel)
+const depthShearY = -0.28; // negative pushes depth upward (so tops are visible)
+
+/* --------- player (similar physics to 2D) --------- */
+const player = { x: TILE*5 + TILE/2, y: TILE*10, z: 0, w:18, h:26, vx:0, vy:0, onGround:false, facing:1 };
+const GRAVITY=1400, MAX_FALL=1400, MAX_SPEED=220, GROUND_ACCEL=14000, AIR_ACCEL=3200, JUMP_SPEED=520, JUMP_CUTOFF=200, COYOTE_TIME=0.10, JUMP_BUFFER=0.10;
+let coyoteTimer=0, jumpBufferTimer=0;
+
+/* --------- input --------- */
+const input = {left:false,right:false,jump:false,jumpHeld:false};
+addEventListener('keydown', e=>{
+  if(e.code==='ArrowLeft'||e.code==='KeyA') input.left=true;
+  if(e.code==='ArrowRight'||e.code==='KeyD') input.right=true;
+  if(e.code==='ArrowUp'||e.code==='KeyW'||e.code==='Space'){
+    if(!input.jump){ input.jump=true; input.jumpHeld=true; jumpBufferTimer = JUMP_BUFFER; }
+  }
+  if(e.key === 'Escape'){ menu.style.display = menu.style.display === 'none' ? 'flex' : 'none'; }
+});
+addEventListener('keyup', e=>{
+  if(e.code==='ArrowLeft'||e.code==='KeyA') input.left=false;
+  if(e.code==='ArrowRight'||e.code==='KeyD') input.right=false;
+  if(e.code==='ArrowUp'||e.code==='KeyW'||e.code==='Space'){ input.jumpHeld=false; input.jump=false; }
+});
+
+/* --------- projection & block face helpers --------- */
+function worldToScreen(wx, wy, wz){
+  // camera transform then oblique projection
+  const sx = (wx - camera.x) * camera.scale + (wz - camera.z) * depthShearX * camera.scale + canvas.width/2;
+  const sy = (wy - camera.y) * camera.scale + (wz - camera.z) * depthShearY * camera.scale + canvas.height/2;
+  return { x: sx, y: sy };
+}
+
+function drawQuad(points, fillStyle, strokeStyle){
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, points[0].y);
+  for(let i=1;i<points.length;i++) ctx.lineTo(points[i].x, points[i].y);
+  ctx.closePath();
+  if(fillStyle){ ctx.fillStyle = fillStyle; ctx.fill(); }
+  if(strokeStyle){ ctx.strokeStyle = strokeStyle; ctx.stroke(); }
+}
+
+/* Face object for painter's algorithm */
+class Face {
+  constructor(pts, avgDepth, fill, stroke){ this.pts = pts; this.d = avgDepth; this.fill = fill; this.stroke = stroke; }
+}
+
+/* Build faces for a cube at (bx, by) in tile coords
+   cube has size TILE (x horizontal), TILE (y vertical), depth = DEPTH (z thickness)
+*/
+const DEPTH = Math.floor(TILE * 0.65);
+function cubeFaces(tileX, tileY, tileType){
+  // world coords origin (0,0) at top-left. y increases downward.
+  const wx = tileX * TILE;
+  const wy = tileY * TILE;
+  const wz = 0; // back-most z
+  // cube corners in (x,y,z)
+  // front face (z = 0), back face (z = DEPTH)
+  const corners = [
+    {x: wx,      y: wy,      z: wz},               // 0: top-left front
+    {x: wx+TILE, y: wy,      z: wz},               // 1: top-right front
+    {x: wx+TILE, y: wy+TILE, z: wz},               // 2: bottom-right front
+    {x: wx,      y: wy+TILE, z: wz},               // 3: bottom-left front
+
+    {x: wx,      y: wy,      z: wz+DEPTH},         // 4: top-left back
+    {x: wx+TILE, y: wy,      z: wz+DEPTH},         // 5: top-right back
+    {x: wx+TILE, y: wy+TILE, z: wz+DEPTH},         // 6: bottom-right back
+    {x: wx,      y: wy+TILE, z: wz+DEPTH}          // 7: bottom-left back
+  ];
+
+  // projection of each corner
+  const proj = corners.map(c => worldToScreen(c.x, c.y, c.z));
+
+  // choose colors based on tileType
+  let base = '#6B3E1E', top = '#2CA02C', water = '#2a6ea6';
+  if(tileType === 2){ base = '#2a6ea6'; top = '#2a6ea6'; }
+  // faces (we'll draw: top, side (right), front)
+  const faces = [];
+
+  // TOP face: corners 4,5,1,0 (back-top -> front-top)
+  {
+    const pts = [proj[4], proj[5], proj[1], proj[0]];
+    const depth = (corners[4].z+corners[5].z+corners[1].z+corners[0].z)/4 + (corners[4].y+corners[5].y+corners[1].y+corners[0].y)/4;
+    const fill = (tileType===2) ? shadeColor('#2a9bd6', 0.04) : shadeColor(top, -0.06);
+    faces.push(new Face(pts, depth, fill, 'rgba(0,0,0,0.06)'));
+  }
+
+  // RIGHT side face: 5,6,2,1
+  {
+    const pts = [proj[5], proj[6], proj[2], proj[1]];
+    const depth = (corners[5].z+corners[6].z+corners[2].z+corners[1].z)/4 + (corners[5].x+corners[6].x+corners[2].x+corners[1].x)/4;
+    const fill = (tileType===2) ? shadeColor('#1f6796', -0.02) : shadeColor(base, -0.16);
+    faces.push(new Face(pts, depth, fill, 'rgba(0,0,0,0.06)'));
+  }
+
+  // FRONT face: 0,1,2,3
+  {
+    const pts = [proj[0], proj[1], proj[2], proj[3]];
+    const depth = (corners[0].z+corners[1].z+corners[2].z+corners[3].z)/4 + (corners[0].y+corners[1].y+corners[2].y+corners[3].y)/4;
+    const fill = (tileType===2) ? shadeColor('#2a6ea6', 0.00) : base;
+    faces.push(new Face(pts, depth, fill, 'rgba(0,0,0,0.08)'));
+  }
+
+  return faces;
+}
+
+/* tiny color utility */
+function shadeColor(hex, percent){
+  // hex like '#rrggbb', percent in [-1,1]
+  const num = parseInt(hex.slice(1),16);
+  let r = (num >> 16), g = (num >> 8) & 0xFF, b = num & 0xFF;
+  r = clampInt(Math.round(r*(1+percent)),0,255);
+  g = clampInt(Math.round(g*(1+percent)),0,255);
+  b = clampInt(Math.round(b*(1+percent)),0,255);
+  return `rgb(${r},${g},${b})`;
+}
+function clampInt(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+/* --------- collision (tile-based) --------- */
+function worldToTile(px){ return Math.floor(px / TILE); }
+function resolveCollision(px,py,w,h,vx,vy,dt){
+  let nx=px, ny=py, nvx=vx, nvy=vy;
+  nx += nvx*dt; let left=worldToTile(nx-w/2), right=worldToTile(nx+w/2-0.0001), top=worldToTile(ny-h/2), bottom=worldToTile(ny+h/2-0.0001);
+  for(let ty=top;ty<=bottom;ty++){
+    if(tileAt(left,ty)===1){ nx = (left+1)*TILE + w/2 + 0.001; nvx=0; left=worldToTile(nx-w/2); }
+    if(tileAt(right,ty)===1){ nx = (right)*TILE - w/2 - 0.001; nvx=0; right=worldToTile(nx+w/2-0.0001); }
+  }
+  ny += nvy*dt; left = worldToTile(nx-w/2); right = worldToTile(nx+w/2-0.0001); top = worldToTile(ny-h/2); bottom = worldToTile(ny+h/2-0.0001);
+  let onGround=false;
+  for(let tx=left;tx<=right;tx++){
+    if(tileAt(tx,top)===1){ ny = (top+1)*TILE + h/2 + 0.001; nvy=0; top=worldToTile(ny-h/2); }
+    if(tileAt(tx,bottom)===1){ ny = (bottom)*TILE - h/2 - 0.001; nvy=0; bottom=worldToTile(ny+h/2-0.0001); onGround=true; }
+  }
+  return {x:nx,y:ny,vx:nvx,vy:nvy,onGround};
+}
+
+/* --------- clouds & small effects --------- */
+function makeClouds(rng){
+  clouds = [];
+  const count = Math.max(6, Math.floor(WORLD_W/22));
+  for(let i=0;i<count;i++){
+    clouds.push({
+      x: rng()*WORLD_W*TILE,
+      y: 40 + rng()*140,
+      scale: 0.5 + rng()*1.2,
+      speed: 8 + rng()*28,
+      alpha: 0.28 + rng()*0.5
+    });
+  }
+}
+
+/* --------- render loop --------- */
+let last = performance.now(), acc = 0, STEP = 1/60;
+let frames=0, fps=0, fpsTimer=0, gameStarted=false;
+let footCooldown=0;
+
+function drawSky(){
+  // simple gradient
+  const t = clamp(player.x / (WORLD_W*TILE), 0, 1);
+  const topColor = t < 0.45 ? lerpColor([125,200,255],[95,170,255], t/0.45) : lerpColor([95,170,255],[20,40,90], (t-0.45)/0.55);
+  const bottomColor = t < 0.45 ? lerpColor([210,235,255],[150,215,255], t/0.45) : lerpColor([150,215,255],[60,90,140], (t-0.45)/0.55);
+  const g = ctx.createLinearGradient(0,0,0,canvas.height);
+  g.addColorStop(0, topColor); g.addColorStop(1, bottomColor);
+  ctx.fillStyle = g; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // clouds
+  ctx.globalAlpha = 1;
+  for(const c of clouds){
+    const par = 0.28 + 0.45*(1 - c.scale);
+    const cx = ((c.x - camera.x*par) % (WORLD_W*TILE + 800)) - 400;
+    const cy = c.y + Math.sin((c.x + performance.now()*0.00014*c.speed) * 0.001) * 6;
+    ctx.globalAlpha = c.alpha;
+    drawCloud(cx,cy,c.scale);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawCloud(x,y,s){
+  ctx.save(); ctx.translate(x,y); ctx.scale(s,s);
+  ctx.fillStyle = 'rgba(255,255,255,0.92)';
+  ctx.beginPath(); ctx.ellipse(0,0,46,22,0,0,Math.PI*2); ctx.ellipse(-34,4,28,16,0,0,Math.PI*2); ctx.ellipse(34,4,28,16,0,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+function lerpColor(a,b,t){ return `rgb(${Math.round(lerp(a[0],b[0],t))},${Math.round(lerp(a[1],b[1],t))},${Math.round(lerp(a[2],b[2],t))})`; }
+function lerp(a,b,t){ return a + (b-a)*t; }
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+/* draw world as collection of faces, sort by depth */
+function renderWorld(now){
+  // gather faces visible in viewport
+  const faces = [];
+  const viewW = canvas.width / camera.scale;
+  const viewH = canvas.height / camera.scale;
+  // compute tile range to consider
+  const startX = Math.max(0, Math.floor((camera.x - 100 - DEPTH*depthShearX)/TILE));
+  const endX = Math.min(WORLD_W-1, Math.ceil((camera.x + (canvas.width)/camera.scale + 100 + DEPTH*depthShearX)/TILE));
+  const startY = 0;
+  const endY = Math.min(WORLD_H-1, Math.ceil((camera.y + (canvas.height)/camera.scale + 150)/TILE));
+
+  for(let tx = startX; tx<=endX; tx++){
+    for(let ty = startY; ty<=endY; ty++){
+      const t = tiles[idx(tx,ty)];
+      if(!t) continue;
+      // create cube faces
+      const f = cubeFaces(tx, ty, t);
+      for(const face of f) faces.push(face);
+    }
+  }
+
+  // add water surface shimmer as separate thin faces (for tiles of type 2)
+  // We'll animate water top brightness by modifying faces from cubeFaces (top face), but a simple approach:
+  // (already applied via tileType=2 shades)
+
+  // sort by depth descending (painter: draw farthest first)
+  faces.sort((a,b)=> a.d - b.d);
+
+  // draw faces
+  for(const f of faces){
+    drawQuad(f.pts, f.fill, f.stroke);
+  }
+
+  // draw player as a small extruded box
+  const px = player.x - player.w/2, py = player.y - player.h/2;
+  const playerFaces = cubeFaces(px/TILE, py/TILE, 1); // reuse cube generator but coordinates expect tileX,tileY; so small hack: we build a small rectangle manually
+  // Instead of cubeFaces for player (tile-based), render a simple rectangle with top shading by building 6 points
+  // Build 3D box for player with given size (in pixels)
+  const pw = player.w, ph = player.h, pd = DEPTH*0.6;
+  const corners = [
+    {x: player.x - pw/2,   y: player.y - ph/2,   z: 0},
+    {x: player.x + pw/2,   y: player.y - ph/2,   z: 0},
+    {x: player.x + pw/2,   y: player.y + ph/2,   z: 0},
+    {x: player.x - pw/2,   y: player.y + ph/2,   z: 0},
+
+    {x: player.x - pw/2,   y: player.y - ph/2,   z: pd},
+    {x: player.x + pw/2,   y: player.y - ph/2,   z: pd},
+    {x: player.x + pw/2,   y: player.y + ph/2,   z: pd},
+    {x: player.x - pw/2,   y: player.y + ph/2,   z: pd}
+  ];
+  const proj = corners.map(c => worldToScreen(c.x, c.y, c.z));
+  // top
+  faces.push(new Face([proj[4],proj[5],proj[1],proj[0]], proj[4].y, '#ffffff', 'rgba(0,0,0,0.06)'));
+  // right
+  faces.push(new Face([proj[5],proj[6],proj[2],proj[1]], proj[5].x, '#0066cc', 'rgba(0,0,0,0.06)'));
+  // front
+  faces.push(new Face([proj[0],proj[1],proj[2],proj[3]], proj[0].y + proj[0].x, '#ffffff', 'rgba(0,0,0,0.06)'));
+
+  // sort new faces tail and draw them
+  faces.sort((a,b)=> a.d - b.d);
+  for(const f of faces) drawQuad(f.pts, f.fill, f.stroke);
+}
+
+/* --------- physics step --------- */
+function moveToward(v,target,maxDelta){ if(v<target) return Math.min(v+maxDelta,target); if(v>target) return Math.max(v-maxDelta,target); return v; }
+function physicsStep(){
+  if(document.hidden) return;
+  let target = 0; if(input.left) target -= MAX_SPEED; if(input.right) target += MAX_SPEED;
+  const accel = player.onGround ? GROUND_ACCEL : AIR_ACCEL;
+  player.vx = moveToward(player.vx, target, accel * STEP);
+  player.vy += GRAVITY * STEP; if(player.vy > MAX_FALL) player.vy = MAX_FALL;
+  coyoteTimer -= STEP; if(player.onGround) coyoteTimer = COYOTE_TIME;
+  if(jumpBufferTimer > 0) jumpBufferTimer -= STEP;
+  if(jumpBufferTimer > 0 && coyoteTimer > 0){ player.vy = -JUMP_SPEED; player.onGround=false; coyoteTimer=0; jumpBufferTimer=0; }
+  if(!input.jumpHeld && player.vy < 0){ if(player.vy < -JUMP_CUTOFF) player.vy = -JUMP_CUTOFF; }
+  footCooldown -= STEP;
+
+  // update particles / cloud movement elsewhere
+
+  const res = resolveCollision(player.x, player.y, player.w, player.h, player.vx, player.vy, STEP);
+  player.x = res.x; player.y = res.y; player.vx = res.vx; player.vy = res.vy; player.onGround = res.onGround;
+  if(player.vx < -1) player.facing = -1; if(player.vx > 1) player.facing = 1;
+}
+
+/* --------- main frame --------- */
+function frame(now){
+  const dt_real = (now - last) / 1000; last = now;
+  acc += dt_real; if(acc > 0.25) acc = 0.25;
+  while(acc >= STEP){ physicsStep(); acc -= STEP; }
+  // camera follows player smoothly
+  const targetX = player.x - canvas.width/(2*camera.scale) + 80;
+  const targetY = player.y - canvas.height/(2*camera.scale) + 20;
+  camera.x += (targetX - camera.x) * 0.12;
+  camera.y += (targetY - camera.y) * 0.12;
+  camera.scale += (camera.targetScale - camera.scale) * 0.12;
+  if(Math.abs(camera.scale - camera.targetScale) < 0.001) camera.scale = camera.targetScale;
+
+  // animate
+  waterOffset += dt_real * 60;
+  for(const c of clouds) c.x += (c.speed*dt_real*0.18);
+  for(const c of clouds) if(c.x > WORLD_W*TILE + 600) c.x = -600;
+
+  // clear and draw
+  drawSky();
+
+  // render world faces
+  renderWorld(now);
+
+  // HUD
+  frames++; fpsTimer += dt_real;
+  if(fpsTimer >= 0.5){ fps = Math.round(frames / fpsTimer); frames = 0; fpsTimer = 0; }
+  hud.innerHTML = `x:${Math.round(player.x)} y:${Math.round(player.y)} vx:${Math.round(player.vx)} vy:${Math.round(player.vy)} fps:${Math.round(fps)} zoom:${camera.scale.toFixed(2)}`;
+
+  requestAnimationFrame(frame);
+}
+
+/* --------- world generation (seeded) --------- */
+async function generateTerrain(seedStr, rng, mode='mainland'){
+  // allocate arrays
+  tiles = new Uint8Array(WORLD_W * WORLD_H);
+  heightMap = new Array(WORLD_W);
+
+  // show loader and progress
+  loadingOverlay.style.display = 'flex';
+  loaderFill.style.width = '0%'; loaderText.textContent = '0%';
+
+  const seaLevel = mode === 'islands' ? Math.floor(WORLD_H*0.46) : Math.floor(WORLD_H*0.5);
+  const seeds = 10; const seedVals = [];
+  for(let i=0;i<seeds;i++) seedVals.push(rng()*6 - 3);
+
+  let islandCenters = [];
+  if(mode === 'islands'){
+    const islandCount = Math.max(2, Math.floor(WORLD_W / 40));
+    for(let i=0;i<islandCount;i++){
+      islandCenters.push({cx: Math.floor(rng()*WORLD_W), radius: Math.floor(6 + rng()*16), height: Math.floor(4 + rng()*8)});
+    }
+  }
+
+  let mountainPeaks = [];
+  if(mode === 'mainland'){
+    const peakCount = Math.max(1, Math.floor(WORLD_W / 120));
+    for(let i=0;i<peakCount;i++){
+      mountainPeaks.push({cx: Math.floor(rng()*WORLD_W), radius: Math.floor(14 + rng()*40), height: Math.floor(6 + rng()*14)});
+    }
+  }
+
+  for(let x=0;x<WORLD_W;x++){
+    let v = 0;
+    v += Math.sin(x*0.018) * (3.2 + rng()*1.2);
+    v += Math.sin(x*0.0048) * (7 + rng()*3);
+    v += Math.sin(x*0.11) * (1.2 + rng()*0.6);
+    const t = (x/WORLD_W)*(seeds-1);
+    const i0 = Math.floor(t), f = t - i0;
+    const a = seedVals[i0 % seeds], b = seedVals[(i0+1) % seeds];
+    v += (a*(1-f) + b*f) * 3.4;
+
+    if(mode === 'islands'){
+      let influence = 0;
+      for(const isl of islandCenters){
+        const d = Math.abs(isl.cx - x);
+        const fall = Math.max(0, 1 - (d / (isl.radius*4)));
+        influence += fall * isl.height;
+      }
+      v += influence;
+    } else {
+      for(const p of mountainPeaks){
+        const d = Math.abs(p.cx - x);
+        if(d < p.radius){
+          const fall = Math.cos((d / p.radius) * Math.PI) * 1.0;
+          v += fall * p.height * (0.7 + rng()*0.6);
+        }
+      }
+    }
+
+    let base = Math.floor(WORLD_H*0.5 + v);
+    if(mode === 'islands') base = Math.floor(seaLevel - 1 + v*0.6);
+    if(base > WORLD_H-2) base = WORLD_H-2;
+    if(base < 4) base = 4;
+    heightMap[x] = base;
+    for(let y=base; y<WORLD_H; y++) tiles[idx(x,y)] = 1;
+
+    // progress update
+    if(x % 6 === 0){
+      const p = Math.round((x/(WORLD_W-1))*100);
+      loaderFill.style.width = p + '%';
+      loaderText.textContent = p + '%';
+      await new Promise(r=>setTimeout(r,0));
+    }
+  }
+
+  // water and islands floaters
+  if(mode === 'islands'){
+    for(let x=0;x<WORLD_W;x++){
+      for(let y=heightMap[x]; y<WORLD_H; y++) tiles[idx(x,y)] = 2;
+    }
+    for(let i=0;i<Math.floor(WORLD_W/6);i++){
+      const px = Math.floor(rng()*WORLD_W);
+      const py = Math.floor(Math.max(4, heightMap[px] - (1 + Math.floor(rng()*3))));
+      const len = Math.floor(1 + rng()*5);
+      for(let x=px; x<Math.min(WORLD_W, px+len); x++) tiles[idx(x,py)] = 1;
+    }
+  } else {
+    if(rng() < 0.95){
+      const lakeCenter = Math.floor(rng()*WORLD_W);
+      const lakeRadius = Math.floor(8 + rng()*22);
+      const lakeDepth = Math.floor(2 + rng()*4);
+      for(let x=Math.max(0,lakeCenter-lakeRadius); x<=Math.min(WORLD_W-1,lakeCenter+lakeRadius); x++){
+        const d = Math.abs(x - lakeCenter);
+        const floor = heightMap[x] + Math.floor(Math.max(0, (lakeRadius - d) * (lakeDepth/lakeRadius)));
+        for(let y=floor; y<WORLD_H; y++) tiles[idx(x,y)] = 2;
+      }
+    }
+    for(let i=0;i<Math.floor(WORLD_W/12);i++){
+      const px = Math.floor(rng()*WORLD_W);
+      const py = Math.floor(rng()*(WORLD_H/3)) + 6;
+      const len = Math.floor(1 + rng()*4);
+      for(let x=px; x<Math.min(WORLD_W, px+len); x++) tiles[idx(x,py)] = 1;
+    }
+  }
+
+  renderMiniPreview(seedStr, rng, mode); // update mini preview buffer (re-uses logic)
+  makeClouds(rng);
+
+  loaderFill.style.width = '100%';
+  loaderText.textContent = '100%';
+  await new Promise(r => setTimeout(r, 300));
+  loadingOverlay.style.display = 'none';
+  loaderFill.style.width = '0%';
+  loaderText.textContent = '0%';
+}
+
+/* --------- mini preview (2D simplified) --------- */
+function renderMiniPreview(seedStr, rng, mode){
+  const pw = miniCanvas.width, ph = miniCanvas.height;
+  miniCtx.clearRect(0,0,pw,ph);
+  const cols = Math.min(120, WORLD_W);
+  const rows = Math.min(48, WORLD_H);
+  const cellW = Math.floor(pw/cols), cellH = Math.floor(ph/rows);
+  const seeds = 6; const seedVals=[];
+  for(let i=0;i<seeds;i++) seedVals.push(rng()*6 - 3);
+  for(let x=0;x<cols;x++){
+    let v=0;
+    v += Math.sin(x*0.02) * 3.5;
+    v += Math.sin(x*0.005) * 8.0;
+    v += Math.sin(x*0.11) * 1.3;
+    const t = (x/cols)*(seeds-1); const i0=Math.floor(t), f=t-i0;
+    const a = seedVals[i0%seeds], b=seedVals[(i0+1)%seeds];
+    v += (a*(1-f)+b*f) * 3.0;
+    let h = Math.floor(rows*0.5 + v);
+    if(h > rows-2) h = rows-2; if(h < 4) h = 4;
+    if(mode === 'islands') h = Math.floor(rows*0.46 + v*0.55);
+    for(let y=h; y<rows; y++){
+      const px = x*cellW, py = y*cellH;
+      if(mode === 'islands'){
+        miniCtx.fillStyle = '#2a6ea6'; miniCtx.fillRect(px,py,cellW,cellH);
+      } else {
+        miniCtx.fillStyle = '#6B3E1E'; miniCtx.fillRect(px,py,cellW,cellH);
+      }
+    }
+    miniCtx.fillStyle = '#2CA02C'; miniCtx.fillRect(x*cellW, (h-1)*cellH, cellW, cellH);
+  }
+  miniCtx.globalAlpha = 0.12; miniCtx.fillStyle = '#000'; miniCtx.fillRect(0,0,pw,4); miniCtx.globalAlpha=1;
+}
+
+/* --------- UI wiring (reuse your components & labels) --------- */
+function makeRandomSeed(){
+  const A = ["Misty","Silent","Neon","Crimson","Lone","Windy","Blue","Solar","Frost","Echo"];
+  const B = ["Island","Grove","Plateau","Dunes","Reach","Cavern","Shore","Vale","Ridge","Haven"];
+  return A[Math.floor(Math.random()*A.length)] + B[Math.floor(Math.random()*B.length)] + Math.floor(Math.random()*900);
+}
+randomBtn.addEventListener('click', ()=>{ seedInput.value = makeRandomSeed(); updateSeedPreview(); });
+copySeed.addEventListener('click', ()=>{ navigator.clipboard?.writeText(seedInput.value || '') });
+widthRange.addEventListener('input', ()=>{ widthVal.textContent = widthRange.value; updateSizeLabel(); });
+heightRange.addEventListener('input', ()=>{ heightVal.textContent = heightRange.value; updateSizeLabel(); });
+
+function updateSeedPreview(){
+  const h = xfnv1a(seedInput.value || '');
+  seedHex.textContent = h.toString(16).padStart(8,'0').toUpperCase();
+}
+function updateSizeLabel(){ sizeLabel.textContent = `${widthRange.value}×${heightRange.value}`; }
+function updateModeLabel(){ modeLabel.textContent = `Mode: ${worldTypeSel.value}`; }
+
+seedInput.addEventListener('input', ()=>{ updateSeedPreview(); });
+worldTypeSel.addEventListener('change', ()=>{ updateModeLabel(); });
+updateSeedPreview(); updateModeLabel(); updateSizeLabel();
+
+/* regen preview */
+regenBtn.addEventListener('click', async ()=>{
+  WORLD_W = parseInt(widthRange.value,10); WORLD_H = parseInt(heightRange.value,10);
+  const seed = seedInput.value || makeRandomSeed();
+  const seedNum = xfnv1a(seed);
+  const rng = mulberry32(seedNum);
+  renderMiniPreview(seed, rng, worldTypeSel.value);
+});
+
+/* play button */
+playBtn.addEventListener('click', async ()=>{
+  menu.style.display = 'none';
+  hud.innerHTML = 'Generating world...';
+  WORLD_W = parseInt(widthRange.value,10);
+  WORLD_H = parseInt(heightRange.value,10);
+  camera.targetScale = Number(startZoomSel.value) || 1.6;
+  camera.scale = camera.targetScale;
+
+  const seed = seedInput.value || makeRandomSeed();
+  const seedNum = xfnv1a(seed);
+  const rng = mulberry32(seedNum);
+  updateSeedPreview();
+  await generateTerrain(seed, rng, worldTypeSel.value);
+  // spawn
+  const spawnX = Math.min(5, WORLD_W-6);
+  player.x = spawnX*TILE + TILE/2;
+  player.y = (heightMap[spawnX] - 2) * TILE;
+  camera.x = player.x - (canvas.width/(2*camera.scale));
+  camera.y = player.y - (canvas.height/(2*camera.scale));
+  hud.innerHTML = 'World ready — enjoy!';
+  if(!gameStarted){ last = performance.now(); gameStarted=true; requestAnimationFrame(frame); }
+});
+
+/* initial setup & auto-preview */
+seedInput.value = makeRandomSeed(); updateSeedPreview();
+regenBtn.click();
+let previewTimer = setInterval(()=>{ if(menu.style.display !== 'none'){ regenBtn.click(); } }, 5000);
+
+/* mouse wheel zoom (keeps cursor world pos fixed while zooming) */
+let lastMouse = {x:innerWidth/2, y:innerHeight/2};
+addEventListener('mousemove', e => { lastMouse.x = e.clientX; lastMouse.y = e.clientY; });
+function scheduleSnap(){
+  if(this._snapT) clearTimeout(this._snapT);
+  this._snapT = setTimeout(()=>{
+    const allowed = [0.9,1.2,1.6,2.6];
+    let nearest = allowed[0], best = Math.abs(camera.targetScale - nearest);
+    for(const s of allowed){ const d = Math.abs(camera.targetScale - s); if(d < best){ best = d; nearest = s; } }
+    const rect = canvas.getBoundingClientRect(); const mx = lastMouse.x - rect.left, my = lastMouse.y - rect.top;
+    const worldBeforeX = camera.x + mx / camera.targetScale;
+    const worldBeforeY = camera.y + my / camera.targetScale;
+    camera.targetScale = nearest;
+    const worldAfterX = camera.x + mx / camera.targetScale;
+    const worldAfterY = camera.y + my / camera.targetScale;
+    camera.x += (worldAfterX - worldBeforeX); camera.y += (worldAfterY - worldBeforeY);
+    this._snapT = null;
+  }, 160);
+}
+addEventListener('wheel', (e)=>{
+  const zoomFactor = Math.pow(1.0018, -e.deltaY); let newTarget = clamp(camera.targetScale * zoomFactor, 0.6, 3.0);
+  const rect = canvas.getBoundingClientRect(), sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const worldBeforeX = camera.x + sx / camera.targetScale, worldBeforeY = camera.y + sy / camera.targetScale;
+  camera.targetScale = newTarget;
+  const worldAfterX = camera.x + sx / camera.targetScale, worldAfterY = camera.y + sy / camera.targetScale;
+  camera.x += (worldAfterX - worldBeforeX); camera.y += (worldAfterY - worldBeforeY);
+  scheduleSnap();
+}, {passive:true});
+canvas.addEventListener('dblclick', ()=>{ camera.targetScale = 1.6; });
+
+/* utility */
+function clamp(v,a,b){ return Math.max(a, Math.min(b, v)); }
+
+/* start paused (menu visible). When Play pressed, loop begins */
+</script>
+</body>
+</html>
 
